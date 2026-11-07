@@ -183,56 +183,196 @@ export type Database = {
       }
       branches: {
         Row: {
+          accept_alert_minutes: number
           address: string | null
           area: string | null
+          auto_accept_orders: boolean
           city: string | null
           created_at: string
+          default_prep_minutes: number
           id: string
           is_active: boolean
           is_open: boolean
+          late_order_minutes: number
           latitude: number | null
           longitude: number | null
           name: string
           opening_hours: Json | null
           phone: string | null
           restaurant_id: string
+          staff_orders_need_acceptance: boolean
           updated_at: string
         }
         Insert: {
+          accept_alert_minutes?: number
           address?: string | null
           area?: string | null
+          auto_accept_orders?: boolean
           city?: string | null
           created_at?: string
+          default_prep_minutes?: number
           id?: string
           is_active?: boolean
           is_open?: boolean
+          late_order_minutes?: number
           latitude?: number | null
           longitude?: number | null
           name: string
           opening_hours?: Json | null
           phone?: string | null
           restaurant_id: string
+          staff_orders_need_acceptance?: boolean
           updated_at?: string
         }
         Update: {
+          accept_alert_minutes?: number
           address?: string | null
           area?: string | null
+          auto_accept_orders?: boolean
           city?: string | null
           created_at?: string
+          default_prep_minutes?: number
           id?: string
           is_active?: boolean
           is_open?: boolean
+          late_order_minutes?: number
           latitude?: number | null
           longitude?: number | null
           name?: string
           opening_hours?: Json | null
           phone?: string | null
           restaurant_id?: string
+          staff_orders_need_acceptance?: boolean
           updated_at?: string
         }
         Relationships: [
           {
             foreignKeyName: "branches_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customer_addresses: {
+        Row: {
+          address_text: string
+          area: string | null
+          created_at: string
+          customer_id: string
+          id: string
+          is_default: boolean
+          label: string | null
+          landmark: string | null
+          latitude: number | null
+          longitude: number | null
+          restaurant_id: string
+        }
+        Insert: {
+          address_text: string
+          area?: string | null
+          created_at?: string
+          customer_id: string
+          id?: string
+          is_default?: boolean
+          label?: string | null
+          landmark?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          restaurant_id: string
+        }
+        Update: {
+          address_text?: string
+          area?: string | null
+          created_at?: string
+          customer_id?: string
+          id?: string
+          is_default?: boolean
+          label?: string | null
+          landmark?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          restaurant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customer_addresses_customer_id_restaurant_id_fkey"
+            columns: ["customer_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "customer_addresses_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      customers: {
+        Row: {
+          blocked_reason: string | null
+          cancelled_count: number
+          created_at: string
+          id: string
+          is_blocked: boolean
+          last_order_at: string | null
+          marketing_opt_in: boolean
+          name: string | null
+          notes: string | null
+          phone: string
+          refused_count: number
+          restaurant_id: string
+          tags: string[]
+          total_orders: number
+          total_spent: number
+          updated_at: string
+          whatsapp_id: string | null
+        }
+        Insert: {
+          blocked_reason?: string | null
+          cancelled_count?: number
+          created_at?: string
+          id?: string
+          is_blocked?: boolean
+          last_order_at?: string | null
+          marketing_opt_in?: boolean
+          name?: string | null
+          notes?: string | null
+          phone: string
+          refused_count?: number
+          restaurant_id: string
+          tags?: string[]
+          total_orders?: number
+          total_spent?: number
+          updated_at?: string
+          whatsapp_id?: string | null
+        }
+        Update: {
+          blocked_reason?: string | null
+          cancelled_count?: number
+          created_at?: string
+          id?: string
+          is_blocked?: boolean
+          last_order_at?: string | null
+          marketing_opt_in?: boolean
+          name?: string | null
+          notes?: string | null
+          phone?: string
+          refused_count?: number
+          restaurant_id?: string
+          tags?: string[]
+          total_orders?: number
+          total_spent?: number
+          updated_at?: string
+          whatsapp_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "customers_restaurant_id_fkey"
             columns: ["restaurant_id"]
             isOneToOne: false
             referencedRelation: "restaurants"
@@ -630,6 +770,441 @@ export type Database = {
           },
         ]
       }
+      order_counters: {
+        Row: {
+          last_number: number
+          restaurant_id: string
+        }
+        Insert: {
+          last_number?: number
+          restaurant_id: string
+        }
+        Update: {
+          last_number?: number
+          restaurant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_counters_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: true
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_events: {
+        Row: {
+          actor_type: Database["public"]["Enums"]["actor_type"]
+          actor_user_id: string | null
+          created_at: string
+          data: Json
+          event_type: Database["public"]["Enums"]["order_event_type"]
+          from_status: Database["public"]["Enums"]["order_status"] | null
+          id: number
+          order_id: string
+          restaurant_id: string
+          to_status: Database["public"]["Enums"]["order_status"] | null
+        }
+        Insert: {
+          actor_type: Database["public"]["Enums"]["actor_type"]
+          actor_user_id?: string | null
+          created_at?: string
+          data?: Json
+          event_type: Database["public"]["Enums"]["order_event_type"]
+          from_status?: Database["public"]["Enums"]["order_status"] | null
+          id?: never
+          order_id: string
+          restaurant_id: string
+          to_status?: Database["public"]["Enums"]["order_status"] | null
+        }
+        Update: {
+          actor_type?: Database["public"]["Enums"]["actor_type"]
+          actor_user_id?: string | null
+          created_at?: string
+          data?: Json
+          event_type?: Database["public"]["Enums"]["order_event_type"]
+          from_status?: Database["public"]["Enums"]["order_status"] | null
+          id?: never
+          order_id?: string
+          restaurant_id?: string
+          to_status?: Database["public"]["Enums"]["order_status"] | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_events_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "order_events_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "order_events_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_item_modifiers: {
+        Row: {
+          group_name: string
+          id: string
+          option_id: string | null
+          option_name: string
+          order_item_id: string
+          price_delta: number
+          restaurant_id: string
+        }
+        Insert: {
+          group_name: string
+          id?: string
+          option_id?: string | null
+          option_name: string
+          order_item_id: string
+          price_delta: number
+          restaurant_id: string
+        }
+        Update: {
+          group_name?: string
+          id?: string
+          option_id?: string | null
+          option_name?: string
+          order_item_id?: string
+          price_delta?: number
+          restaurant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_item_modifiers_order_item_id_restaurant_id_fkey"
+            columns: ["order_item_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "order_items"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "order_item_modifiers_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      order_items: {
+        Row: {
+          created_at: string
+          id: string
+          is_cancelled: boolean
+          item_id: string
+          item_name: string
+          line_total: number
+          notes: string | null
+          order_id: string
+          quantity: number
+          removals: string[]
+          restaurant_id: string
+          size_name: string | null
+          snapshot: Json
+          unit_price: number
+          variant_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          is_cancelled?: boolean
+          item_id: string
+          item_name: string
+          line_total: number
+          notes?: string | null
+          order_id: string
+          quantity: number
+          removals?: string[]
+          restaurant_id: string
+          size_name?: string | null
+          snapshot: Json
+          unit_price: number
+          variant_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          is_cancelled?: boolean
+          item_id?: string
+          item_name?: string
+          line_total?: number
+          notes?: string | null
+          order_id?: string
+          quantity?: number
+          removals?: string[]
+          restaurant_id?: string
+          size_name?: string | null
+          snapshot?: Json
+          unit_price?: number
+          variant_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "order_items_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "order_items_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "order_items_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      orders: {
+        Row: {
+          accepted_at: string | null
+          address_text: string | null
+          area: string | null
+          branch_id: string
+          cancel_note: string | null
+          cancel_reason: string | null
+          cancelled_at: string | null
+          cancelled_by: string | null
+          completed_at: string | null
+          created_at: string
+          created_by: string | null
+          customer_id: string | null
+          customer_name: string | null
+          customer_phone: string | null
+          delivered_at: string | null
+          delivery_fee: number
+          discount: number
+          dispatched_at: string | null
+          expected_ready_at: string | null
+          failed_at: string | null
+          hold_reason: string | null
+          id: string
+          idempotency_key: string | null
+          is_on_hold: boolean
+          landmark: string | null
+          latitude: number | null
+          longitude: number | null
+          notes: string | null
+          order_number: number
+          order_type: Database["public"]["Enums"]["order_type"]
+          payment_method: Database["public"]["Enums"]["payment_method"]
+          payment_status: Database["public"]["Enums"]["payment_status"]
+          preparing_at: string | null
+          ready_at: string | null
+          restaurant_id: string
+          rider_id: string | null
+          scheduled_for: string | null
+          service_charge: number
+          source: Database["public"]["Enums"]["order_source"]
+          status: Database["public"]["Enums"]["order_status"]
+          subtotal: number
+          table_number: string | null
+          tax: number
+          total: number
+          updated_at: string
+          version: number
+        }
+        Insert: {
+          accepted_at?: string | null
+          address_text?: string | null
+          area?: string | null
+          branch_id: string
+          cancel_note?: string | null
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          delivered_at?: string | null
+          delivery_fee?: number
+          discount?: number
+          dispatched_at?: string | null
+          expected_ready_at?: string | null
+          failed_at?: string | null
+          hold_reason?: string | null
+          id?: string
+          idempotency_key?: string | null
+          is_on_hold?: boolean
+          landmark?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          notes?: string | null
+          order_number: number
+          order_type: Database["public"]["Enums"]["order_type"]
+          payment_method?: Database["public"]["Enums"]["payment_method"]
+          payment_status?: Database["public"]["Enums"]["payment_status"]
+          preparing_at?: string | null
+          ready_at?: string | null
+          restaurant_id: string
+          rider_id?: string | null
+          scheduled_for?: string | null
+          service_charge?: number
+          source: Database["public"]["Enums"]["order_source"]
+          status: Database["public"]["Enums"]["order_status"]
+          subtotal: number
+          table_number?: string | null
+          tax?: number
+          total: number
+          updated_at?: string
+          version?: number
+        }
+        Update: {
+          accepted_at?: string | null
+          address_text?: string | null
+          area?: string | null
+          branch_id?: string
+          cancel_note?: string | null
+          cancel_reason?: string | null
+          cancelled_at?: string | null
+          cancelled_by?: string | null
+          completed_at?: string | null
+          created_at?: string
+          created_by?: string | null
+          customer_id?: string | null
+          customer_name?: string | null
+          customer_phone?: string | null
+          delivered_at?: string | null
+          delivery_fee?: number
+          discount?: number
+          dispatched_at?: string | null
+          expected_ready_at?: string | null
+          failed_at?: string | null
+          hold_reason?: string | null
+          id?: string
+          idempotency_key?: string | null
+          is_on_hold?: boolean
+          landmark?: string | null
+          latitude?: number | null
+          longitude?: number | null
+          notes?: string | null
+          order_number?: number
+          order_type?: Database["public"]["Enums"]["order_type"]
+          payment_method?: Database["public"]["Enums"]["payment_method"]
+          payment_status?: Database["public"]["Enums"]["payment_status"]
+          preparing_at?: string | null
+          ready_at?: string | null
+          restaurant_id?: string
+          rider_id?: string | null
+          scheduled_for?: string | null
+          service_charge?: number
+          source?: Database["public"]["Enums"]["order_source"]
+          status?: Database["public"]["Enums"]["order_status"]
+          subtotal?: number
+          table_number?: string | null
+          tax?: number
+          total?: number
+          updated_at?: string
+          version?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_branch_id_restaurant_id_fkey"
+            columns: ["branch_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "orders_customer_id_restaurant_id_fkey"
+            columns: ["customer_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "orders_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          method: Database["public"]["Enums"]["payment_method"]
+          order_id: string
+          reference: string | null
+          restaurant_id: string
+          status: Database["public"]["Enums"]["payment_status"]
+          verified_at: string | null
+          verified_by: string | null
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          method: Database["public"]["Enums"]["payment_method"]
+          order_id: string
+          reference?: string | null
+          restaurant_id: string
+          status: Database["public"]["Enums"]["payment_status"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          method?: Database["public"]["Enums"]["payment_method"]
+          order_id?: string
+          reference?: string | null
+          restaurant_id?: string
+          status?: Database["public"]["Enums"]["payment_status"]
+          verified_at?: string | null
+          verified_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "payments_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "payments_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "payments_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -716,13 +1291,94 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      kitchen_orders: {
+        Row: {
+          accepted_at: string | null
+          branch_id: string | null
+          created_at: string | null
+          customer_name: string | null
+          expected_ready_at: string | null
+          id: string | null
+          is_on_hold: boolean | null
+          notes: string | null
+          order_number: number | null
+          order_type: Database["public"]["Enums"]["order_type"] | null
+          preparing_at: string | null
+          ready_at: string | null
+          restaurant_id: string | null
+          scheduled_for: string | null
+          source: Database["public"]["Enums"]["order_source"] | null
+          status: Database["public"]["Enums"]["order_status"] | null
+          table_number: string | null
+          updated_at: string | null
+          version: number | null
+        }
+        Insert: {
+          accepted_at?: string | null
+          branch_id?: string | null
+          created_at?: string | null
+          customer_name?: string | null
+          expected_ready_at?: string | null
+          id?: string | null
+          is_on_hold?: boolean | null
+          notes?: string | null
+          order_number?: number | null
+          order_type?: Database["public"]["Enums"]["order_type"] | null
+          preparing_at?: string | null
+          ready_at?: string | null
+          restaurant_id?: string | null
+          scheduled_for?: string | null
+          source?: Database["public"]["Enums"]["order_source"] | null
+          status?: Database["public"]["Enums"]["order_status"] | null
+          table_number?: string | null
+          updated_at?: string | null
+          version?: number | null
+        }
+        Update: {
+          accepted_at?: string | null
+          branch_id?: string | null
+          created_at?: string | null
+          customer_name?: string | null
+          expected_ready_at?: string | null
+          id?: string | null
+          is_on_hold?: boolean | null
+          notes?: string | null
+          order_number?: number | null
+          order_type?: Database["public"]["Enums"]["order_type"] | null
+          preparing_at?: string | null
+          ready_at?: string | null
+          restaurant_id?: string | null
+          scheduled_for?: string | null
+          source?: Database["public"]["Enums"]["order_source"] | null
+          status?: Database["public"]["Enums"]["order_status"] | null
+          table_number?: string | null
+          updated_at?: string | null
+          version?: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "orders_branch_id_restaurant_id_fkey"
+            columns: ["branch_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "orders_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
       apply_price_changes: {
         Args: { p_audit: Json; p_changes: Json; p_restaurant_id: string }
         Returns: number
       }
+      create_order: { Args: { p: Json }; Returns: Json }
       create_restaurant_with_owner: {
         Args: {
           p_branch_address: string
@@ -736,11 +1392,23 @@ export type Database = {
         }
         Returns: string
       }
+      edit_order: { Args: { p: Json }; Returns: Json }
       get_public_menu: {
         Args: { p_branch_id: string; p_restaurant_slug: string }
         Returns: Json
       }
       is_slug_available: { Args: { p_slug: string }; Returns: boolean }
+      record_payment: {
+        Args: {
+          p_actor_user_id: string
+          p_amount: number
+          p_method: Database["public"]["Enums"]["payment_method"]
+          p_order_id: string
+          p_reference: string
+          p_restaurant_id: string
+        }
+        Returns: Json
+      }
       reorder_menu_categories: {
         Args: { p_ids: string[]; p_restaurant_id: string }
         Returns: undefined
@@ -765,9 +1433,68 @@ export type Database = {
         }
         Returns: boolean
       }
+      set_order_hold: {
+        Args: {
+          p_actor_user_id: string
+          p_expected_version: number
+          p_hold: boolean
+          p_order_id: string
+          p_reason: string
+          p_restaurant_id: string
+        }
+        Returns: Json
+      }
+      transition_order_status: {
+        Args: {
+          p_actor_type: Database["public"]["Enums"]["actor_type"]
+          p_actor_user_id?: string
+          p_expected_version: number
+          p_note?: string
+          p_order_id: string
+          p_path: Database["public"]["Enums"]["order_status"][]
+          p_reason?: string
+          p_restaurant_id: string
+        }
+        Returns: Json
+      }
     }
     Enums: {
+      actor_type: "staff" | "customer" | "bot" | "system"
       member_role: "owner" | "manager" | "staff" | "kitchen" | "rider"
+      order_event_type:
+        | "created"
+        | "status_changed"
+        | "edited"
+        | "held"
+        | "unheld"
+        | "cancelled"
+        | "payment_updated"
+        | "note_added"
+        | "printed"
+      order_source: "whatsapp" | "phone" | "walk_in" | "web"
+      order_status:
+        | "pending_confirmation"
+        | "awaiting_acceptance"
+        | "accepted"
+        | "preparing"
+        | "ready"
+        | "out_for_delivery"
+        | "delivered"
+        | "completed"
+        | "cancelled"
+        | "failed"
+      order_type: "delivery" | "pickup" | "dine_in"
+      payment_method:
+        | "cod"
+        | "card_on_delivery"
+        | "bank_transfer"
+        | "online_link"
+      payment_status:
+        | "unpaid"
+        | "pending_verification"
+        | "paid"
+        | "refunded"
+        | "partially_refunded"
       restaurant_status: "trial" | "active" | "suspended"
     }
     CompositeTypes: {
@@ -899,7 +1626,46 @@ export const Constants = {
   },
   public: {
     Enums: {
+      actor_type: ["staff", "customer", "bot", "system"],
       member_role: ["owner", "manager", "staff", "kitchen", "rider"],
+      order_event_type: [
+        "created",
+        "status_changed",
+        "edited",
+        "held",
+        "unheld",
+        "cancelled",
+        "payment_updated",
+        "note_added",
+        "printed",
+      ],
+      order_source: ["whatsapp", "phone", "walk_in", "web"],
+      order_status: [
+        "pending_confirmation",
+        "awaiting_acceptance",
+        "accepted",
+        "preparing",
+        "ready",
+        "out_for_delivery",
+        "delivered",
+        "completed",
+        "cancelled",
+        "failed",
+      ],
+      order_type: ["delivery", "pickup", "dine_in"],
+      payment_method: [
+        "cod",
+        "card_on_delivery",
+        "bank_transfer",
+        "online_link",
+      ],
+      payment_status: [
+        "unpaid",
+        "pending_verification",
+        "paid",
+        "refunded",
+        "partially_refunded",
+      ],
       restaurant_status: ["trial", "active", "suspended"],
     },
   },
