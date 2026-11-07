@@ -1,0 +1,80 @@
+import { z } from "zod";
+
+export const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+export type Weekday = (typeof WEEKDAYS)[number];
+
+export const WEEKDAY_LABELS: Record<Weekday, string> = {
+  mon: "Monday",
+  tue: "Tuesday",
+  wed: "Wednesday",
+  thu: "Thursday",
+  fri: "Friday",
+  sat: "Saturday",
+  sun: "Sunday",
+};
+
+const time = z
+  .string()
+  .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a time like 12:00");
+
+const dayHoursSchema = z.discriminatedUnion("closed", [
+  z.object({ closed: z.literal(true) }),
+  z
+    .object({ closed: z.literal(false), open: time, close: time })
+    .refine((d) => d.open !== d.close, {
+      message: "Opening and closing time can't be the same",
+      path: ["close"],
+    }),
+]);
+
+/**
+ * Same shape the database checks (private.is_valid_opening_hours).
+ * A close time earlier than open means closing after midnight (12:00 → 02:00).
+ */
+export const openingHoursSchema = z.object(
+  Object.fromEntries(WEEKDAYS.map((d) => [d, dayHoursSchema])) as Record<
+    Weekday,
+    typeof dayHoursSchema
+  >,
+);
+
+export type DayHours = z.infer<typeof dayHoursSchema>;
+export type OpeningHours = z.infer<typeof openingHoursSchema>;
+
+export const DEFAULT_OPENING_HOURS: OpeningHours = Object.fromEntries(
+  WEEKDAYS.map((d) => [d, { closed: false, open: "12:00", close: "00:00" }]),
+) as OpeningHours;
+
+/** "14:30" → "2:30 PM" */
+export function formatTime(value: string): string {
+  const [h, m] = value.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 === 0 ? 12 : h % 12;
+  return m === 0 ? `${hour} ${period}` : `${hour}:${String(m).padStart(2, "0")} ${period}`;
+}
+
+export function formatDayHours(day: DayHours): string {
+  if (day.closed) return "Closed";
+  const overnight = day.close < day.open;
+  return `${formatTime(day.open)} – ${formatTime(day.close)}${overnight ? " (next day)" : ""}`;
+}
+
+/** Short summary for lists: "Every day 12 PM – 2 AM (next day)" or "Varies by day". */
+export function summarizeOpeningHours(value: unknown): string {
+  const parsed = openingHoursSchema.safeParse(value);
+  if (!parsed.success) return "Hours not set";
+  const days = WEEKDAYS.map((d) => formatDayHours(parsed.data[d]));
+  if (days.every((d) => d === days[0])) return `Every day · ${days[0]}`;
+  const closed = WEEKDAYS.filter((d) => parsed.data[d].closed);
+  const open = days.filter((d) => d !== "Closed");
+  if (open.length && open.every((d) => d === open[0])) {
+    return `${open[0]} · closed ${closed.map((d) => WEEKDAY_LABELS[d].slice(0, 3)).join(", ")}`;
+  }
+  return "Varies by day";
+}
+
+/** Parse DB jsonb into OpeningHours, falling back to defaults. */
+export function toOpeningHours(value: unknown): OpeningHours {
+  const parsed = openingHoursSchema.safeParse(value);
+  return parsed.success ? parsed.data : DEFAULT_OPENING_HOURS;
+}
