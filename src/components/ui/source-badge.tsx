@@ -1,20 +1,15 @@
-import { MessageCircle, Phone, Store, type LucideIcon } from "lucide-react";
-import type { OrderSource } from "@/lib/orders";
+import { Globe, MessageCircle, Phone, Store, type LucideIcon } from "lucide-react";
+import type { OrderSource } from "@/lib/orders/constants";
 import { Badge, type BadgeProps, type BadgeTone } from "./badge";
 
-const SOURCE_META: Record<
-  OrderSource,
-  { label: string; tone: BadgeTone; icon: LucideIcon }
-> = {
+const SOURCE_META: Record<OrderSource, { label: string; tone: BadgeTone; icon: LucideIcon }> = {
   whatsapp: { label: "WhatsApp", tone: "whatsapp", icon: MessageCircle },
   phone: { label: "Phone", tone: "neutral", icon: Phone },
   walk_in: { label: "Walk-in", tone: "neutral", icon: Store },
+  web: { label: "Website", tone: "neutral", icon: Globe },
 };
 
-export type SourceBadgeProps = Omit<
-  BadgeProps,
-  "tone" | "icon" | "children"
-> & {
+export type SourceBadgeProps = Omit<BadgeProps, "tone" | "icon" | "children"> & {
   source: OrderSource;
 };
 
