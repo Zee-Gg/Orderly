@@ -9,12 +9,16 @@ import { TopBar } from "@/components/shell/top-bar";
 import { can, DASHBOARD_ROLES, homePathForRole } from "@/lib/auth/permissions";
 import { PermissionsProvider } from "@/lib/auth/permissions-context";
 import { getMemberships, requireMembership } from "@/lib/auth/session";
+import { getLiveSnapshot, scopeBranchIds } from "@/lib/orders/queries";
+import { DEFAULT_TIMEZONE } from "@/lib/time";
+import { LiveAlerts } from "@/components/orders/live-alerts";
+import { OrdersLiveProvider } from "@/components/orders/live-provider";
 
 async function DashboardShell({ children }: { children: React.ReactNode }) {
   const ctx = await requireMembership();
   // Kitchen and rider accounts have their own screens.
   if (!DASHBOARD_ROLES.includes(ctx.role)) redirect(homePathForRole(ctx.role));
-  const memberships = await getMemberships();
+  const [memberships, snapshot] = await Promise.all([getMemberships(), getLiveSnapshot(ctx)]);
 
   const name = ctx.user.profile.full_name || ctx.user.email || "You";
   const data: ShellData = {
@@ -33,17 +37,25 @@ async function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <PermissionsProvider role={ctx.role}>
+      <OrdersLiveProvider
+        initial={snapshot}
+        restaurantId={ctx.restaurant.id}
+        branchIds={scopeBranchIds(ctx)}
+        timezone={ctx.restaurant.timezone || DEFAULT_TIMEZONE}
+      >
       <div className="min-h-dvh lg:pl-sidebar">
         <Sidebar data={data} className="fixed inset-y-0 left-0 z-30 hidden lg:flex" />
         <TopBar data={data} />
-        <div className="px-4 pt-3 empty:hidden lg:px-8">
+        <div className="flex flex-col gap-3 px-4 pt-3 empty:hidden lg:px-8">
           <OfflineBanner />
+          <LiveAlerts />
         </div>
         <main className="px-4 pt-6 pb-[calc(var(--spacing-touch-lg)+2rem+env(safe-area-inset-bottom))] lg:px-8 lg:pb-10">
           {children}
         </main>
         <BottomNav data={data} className="lg:hidden" />
       </div>
+      </OrdersLiveProvider>
     </PermissionsProvider>
   );
 }
