@@ -6,10 +6,9 @@ import { usePathname } from "next/navigation";
 import { Ellipsis } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Drawer } from "@/components/ui/drawer";
-import { isActive, NAV_ITEMS } from "./nav-items";
-
-const primary = NAV_ITEMS.filter((i) => i.inBottomNav);
-const more = NAV_ITEMS.filter((i) => !i.inBottomNav);
+import { AccountCard } from "./account-card";
+import { isActive, visibleNavItems } from "./nav-items";
+import type { ShellData } from "./shell-data";
 
 const tabClasses = (active: boolean) =>
   cn(
@@ -17,10 +16,13 @@ const tabClasses = (active: boolean) =>
     active ? "font-bold text-brand-700" : "text-muted",
   );
 
-/** Mobile bottom navigation (below lg). Extra pages live under "More". */
-export function BottomNav({ className }: { className?: string }) {
+/** Mobile bottom navigation (below lg). Extra pages + account live under "More". */
+export function BottomNav({ data, className }: { data: ShellData; className?: string }) {
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
+  const items = visibleNavItems(data.role);
+  const primary = items.filter((i) => i.inBottomNav);
+  const more = items.filter((i) => !i.inBottomNav);
   const moreActive = more.some((i) => isActive(pathname, i.href));
 
   return (
@@ -79,6 +81,9 @@ export function BottomNav({ className }: { className?: string }) {
             );
           })}
         </ul>
+        <div className="mt-6">
+          <AccountCard data={data} />
+        </div>
       </Drawer>
     </>
   );
