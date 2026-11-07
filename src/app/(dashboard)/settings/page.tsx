@@ -1,20 +1,18 @@
-import type { Metadata } from "next";
-import { Settings as SettingsIcon } from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
-import { PageHeader } from "@/components/shell/page-header";
+import { Suspense } from "react";
+import { redirect } from "next/navigation";
+import { SkeletonList } from "@/components/ui/skeleton";
+import { can } from "@/lib/auth/permissions";
+import { requirePermission } from "@/lib/auth/session";
 
-export const metadata: Metadata = { title: "Settings" };
+async function SettingsHome(): Promise<null> {
+  const ctx = await requirePermission("settings.view", { onDenied: "redirect" });
+  redirect(can(ctx.role, "settings.edit") ? "/settings/restaurant" : "/settings/branches");
+}
 
 export default function SettingsPage() {
   return (
-    <>
-      <PageHeader title="Settings" description="Restaurant, staff and WhatsApp setup." />
-      <EmptyState
-        tone="neutral"
-        icon={<SettingsIcon />}
-        title="Settings coming soon"
-        description="Restaurant details, branches, staff, delivery areas and WhatsApp connection will be set up here."
-      />
-    </>
+    <Suspense fallback={<SkeletonList />}>
+      <SettingsHome />
+    </Suspense>
   );
 }
