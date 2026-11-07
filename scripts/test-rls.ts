@@ -8,6 +8,7 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
+import { createOrder, transitionOrder, type Actor } from "../src/lib/orders/engine";
 
 process.loadEnvFile(".env.local");
 
@@ -371,7 +372,238 @@ async function main() {
   });
   check("Anonymous users cannot create restaurants", anonRpc.error !== null, JSON.stringify(anonRpc));
 
+  await orderChecks(ownerA, ownerB, kitchenA, restA, restB);
   await menuChecks(ownerA, ownerB, kitchenA, restA, restB);
+}
+
+async function orderChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest, restB: Rest) {
+  section("Orders: setup with the real order engine");
+  // A second branch in A, and a staff member limited to it.
+  const { data: branch2 } = await admin
+    .from("branches")
+    .insert({ restaurant_id: restA.id, name: "A Second" })
+    .select("id")
+    .single();
+  const staff2 = await makeUser("staff-a2");
+  await ownerA.client
+    .from("memberships")
+    .insert({ user_id: staff2.id, restaurant_id: restA.id, role: "staff", branch_id: branch2!.id });
+
+  const { data: cat } = await admin.from("menu_categories").insert({ restaurant_id: restA.id, name: "Orders test" }).select("id").single();
+  const { data: dish } = await admin
+    .from("menu_items")
+    .insert({ restaurant_id: restA.id, category_id: cat!.id, name: "Biryani", base_price: 45000 })
+    .select("id")
+    .single();
+
+  const deps = { admin, pricing: ownerA.client };
+  const ownerActor: Actor = { type: "staff", userId: ownerA.id, role: "owner" };
+  const scopeA = { restaurantId: restA.id, branchIds: [restA.branchId, branch2!.id] };
+  const order = (branchId: string, key: string, extra: Record<string, unknown> = {}) => ({
+    branchId,
+    idempotencyKey: `${key}-${RUN}`,
+    source: "phone" as const,
+    orderType: "delivery" as const,
+    paymentMethod: "cod" as const,
+    customer: { phone: "0300-7654321", name: "Test Customer" },
+    address: { addressText: "House 1, Street 2", area: "Gulberg", landmark: "Near mosque", save: true },
+    deliveryFee: 15000,
+    lines: [{ itemId: dish!.id, quantity: 2 }],
+    ...extra,
+  });
+
+  const created = await createOrder(deps, scopeA, order(restA.branchId, "o1"), ownerActor);
+  check("Owner A creates an order through the engine", created.ok, JSON.stringify(created));
+  const orderId = created.ok ? created.data.id : "";
+  const { data: saved } = await admin.from("orders").select("subtotal, total, customer_phone").eq("id", orderId).single();
+  check(
+    "Totals come from the pricing engine (2 × Rs 450 + Rs 150 delivery)",
+    saved?.subtotal === 90000 && saved?.total === 105000 && saved?.customer_phone === "+923007654321",
+    JSON.stringify(saved),
+  );
+
+  // Idempotency: two simultaneous submits with the same key → one order.
+  const [d1, d2] = await Promise.all([
+    createOrder(deps, scopeA, order(restA.branchId, "dup"), ownerActor),
+    createOrder(deps, scopeA, order(restA.branchId, "dup"), ownerActor),
+  ]);
+  const { count: dupCount } = await admin
+    .from("orders")
+    .select("id", { count: "exact", head: true })
+    .eq("restaurant_id", restA.id)
+    .eq("idempotency_key", `dup-${RUN}`);
+  check(
+    "Same idempotency key twice at once → exactly one order",
+    d1.ok && d2.ok && d1.data.id === d2.data.id && dupCount === 1 && [d1.data.duplicate, d2.data.duplicate].sort().join() === "false,true",
+    JSON.stringify([d1, d2, dupCount]),
+  );
+
+  section("Orders: restaurant B can't see A's orders or customers");
+  for (const table of ["orders", "order_items", "order_events", "payments", "customers", "customer_addresses"] as const) {
+    const r = await ownerB.client.from(table).select("restaurant_id").eq("restaurant_id", restA.id);
+    check(`B cannot read A's ${table}`, !r.error && r.data.length === 0, JSON.stringify(r));
+  }
+  const bTransition = await transitionOrder(
+    { admin, pricing: ownerB.client },
+    { restaurantId: restB.id, branchIds: [restB.branchId] },
+    { orderId, expectedVersion: 1, path: ["preparing"] },
+    { type: "staff", userId: ownerB.id, role: "owner" },
+  );
+  check("B's scope can't move A's order", !bTransition.ok && bTransition.code === "ORDER_NOT_FOUND", JSON.stringify(bTransition));
+
+  section("Orders: kitchen sees orders without phone or address");
+  const kOrders = await kitchenA.client.from("orders").select("id").eq("id", orderId);
+  check("Kitchen can't read the orders table directly", !kOrders.error && kOrders.data.length === 0, JSON.stringify(kOrders));
+  const kView = await kitchenA.client.from("kitchen_orders").select("*").eq("id", orderId);
+  const row = kView.data?.[0] as Record<string, unknown> | undefined;
+  check(
+    "Kitchen reads kitchen_orders, which has no phone or address",
+    !kView.error && !!row && !("customer_phone" in row) && !("address_text" in row) && !("landmark" in row),
+    JSON.stringify(kView),
+  );
+  const kItems = await kitchenA.client.from("order_items").select("item_name").eq("order_id", orderId);
+  check("Kitchen can read order items", !kItems.error && kItems.data.length === 1, JSON.stringify(kItems));
+  const kCustomers = await kitchenA.client.from("customers").select("phone").eq("restaurant_id", restA.id);
+  check("Kitchen can't read customers", !kCustomers.error && kCustomers.data.length === 0, JSON.stringify(kCustomers));
+  const kPayments = await kitchenA.client.from("payments").select("id").eq("restaurant_id", restA.id);
+  check("Kitchen can't read payments", !kPayments.error && kPayments.data.length === 0, JSON.stringify(kPayments));
+  const bView = await ownerB.client.from("kitchen_orders").select("id").eq("restaurant_id", restA.id);
+  check("B can't read A's kitchen_orders", !bView.error && bView.data.length === 0, JSON.stringify(bView));
+
+  section("Orders: nobody writes orders from the browser");
+  const c = ownerA.client;
+  const insertOrder = await c.from("orders").insert({
+    restaurant_id: restA.id,
+    branch_id: restA.branchId,
+    order_number: 99999,
+    order_type: "pickup",
+    source: "phone",
+    status: "accepted",
+    subtotal: 1,
+    total: 1,
+  });
+  check("Owner can't insert an order directly", insertOrder.error !== null, JSON.stringify(insertOrder));
+  const changeTotal = await c.from("orders").update({ total: 1, subtotal: 1 } as never).eq("id", orderId).select("id");
+  const changeStatus = await c.from("orders").update({ status: "completed" } as never).eq("id", orderId).select("id");
+  const { data: afterTamper } = await admin.from("orders").select("total, status").eq("id", orderId).single();
+  check(
+    "Owner can't change an order's total or status directly",
+    (changeTotal.error !== null || changeTotal.data.length === 0) &&
+      (changeStatus.error !== null || changeStatus.data.length === 0) &&
+      afterTamper?.total === 105000 &&
+      afterTamper.status === "accepted",
+    JSON.stringify([changeTotal, changeStatus]),
+  );
+  const insertItem = await c.from("order_items").insert({
+    restaurant_id: restA.id,
+    order_id: orderId,
+    item_id: dish!.id,
+    item_name: "Free",
+    quantity: 1,
+    unit_price: 0,
+    line_total: 0,
+    snapshot: {},
+  } as never);
+  check("Owner can't add order items directly", insertItem.error !== null, JSON.stringify(insertItem));
+  const insertPayment = await c
+    .from("payments")
+    .insert({ restaurant_id: restA.id, order_id: orderId, method: "cod", amount: 1, status: "paid" } as never);
+  check("Owner can't insert payments directly", insertPayment.error !== null, JSON.stringify(insertPayment));
+  const customerStats = await c.from("customers").update({ total_spent: 0, is_blocked: false } as never).eq("restaurant_id", restA.id).select("id");
+  check("Owner can't edit customer stats or block flag directly", customerStats.error !== null, JSON.stringify(customerStats));
+  const rpcCreate = await c.rpc("create_order", { p: { restaurant_id: restA.id } });
+  const rpcMove = await c.rpc("transition_order_status", {
+    p_restaurant_id: restA.id,
+    p_order_id: orderId,
+    p_expected_version: 1,
+    p_path: ["completed"],
+    p_actor_type: "staff",
+  });
+  const rpcPay = await c.rpc("record_payment", {
+    p_restaurant_id: restA.id,
+    p_order_id: orderId,
+    p_method: "cod",
+    p_amount: 1,
+    p_reference: "",
+    p_actor_user_id: ownerA.id,
+  });
+  check(
+    "Order RPCs can't be called from the browser",
+    rpcCreate.error !== null && rpcMove.error !== null && rpcPay.error !== null,
+    JSON.stringify([rpcCreate.error, rpcMove.error, rpcPay.error]),
+  );
+
+  section("Orders: branch-limited staff");
+  const a2 = await createOrder(deps, scopeA, order(branch2!.id, "a2", { orderType: "pickup", address: undefined, deliveryFee: 0 }), ownerActor);
+  const sBranch1 = await staff2.client.from("orders").select("id").eq("id", orderId);
+  const sBranch2 = await staff2.client.from("orders").select("id").eq("id", a2.ok ? a2.data.id : "");
+  check("Branch-limited staff can't see another branch's orders", !sBranch1.error && sBranch1.data.length === 0, JSON.stringify(sBranch1));
+  check("Branch-limited staff sees their own branch's orders", !sBranch2.error && sBranch2.data.length === 1, JSON.stringify(sBranch2));
+  const sMove = await transitionOrder(
+    { admin, pricing: staff2.client },
+    { restaurantId: restA.id, branchIds: [branch2!.id] },
+    { orderId, expectedVersion: 1, path: ["preparing"] },
+    { type: "staff", userId: staff2.id, role: "staff" },
+  );
+  check("Branch-limited staff can't change another branch's order", !sMove.ok, JSON.stringify(sMove));
+
+  section("Orders: concurrency and the state machine");
+  const fresh = await createOrder(deps, scopeA, order(restA.branchId, "race", { orderType: "pickup", address: undefined, deliveryFee: 0 }), ownerActor, {
+    initialStatus: "awaiting_acceptance",
+  });
+  const raceId = fresh.ok ? fresh.data.id : "";
+  const [r1, r2] = await Promise.all([
+    transitionOrder(deps, scopeA, { orderId: raceId, expectedVersion: 1, path: ["accepted"] }, ownerActor),
+    transitionOrder(deps, scopeA, { orderId: raceId, expectedVersion: 1, path: ["accepted"] }, ownerActor),
+  ]);
+  const wins = [r1, r2].filter((r) => r.ok).length;
+  const conflict = [r1, r2].find((r) => !r.ok);
+  const { count: acceptEvents } = await admin
+    .from("order_events")
+    .select("id", { count: "exact", head: true })
+    .eq("order_id", raceId)
+    .eq("to_status", "accepted");
+  check(
+    "Two simultaneous Accepts → exactly one succeeds, the other gets VERSION_CONFLICT",
+    wins === 1 && !!conflict && !conflict.ok && conflict.code === "VERSION_CONFLICT" && acceptEvents === 1,
+    JSON.stringify([r1, r2, acceptEvents]),
+  );
+
+  const skip = await transitionOrder(deps, scopeA, { orderId: raceId, expectedVersion: 2, path: ["completed"] }, ownerActor);
+  check("Database refuses skipping steps (accepted → completed)", !skip.ok && skip.code === "INVALID_TRANSITION", JSON.stringify(skip));
+  const kitchenAccept = await transitionOrder(
+    { admin, pricing: kitchenA.client },
+    scopeA,
+    { orderId: raceId, expectedVersion: 2, path: ["cancelled"], reason: "fake_order" },
+    { type: "staff", userId: kitchenA.id, role: "kitchen" },
+  );
+  check("Kitchen can't cancel orders", !kitchenAccept.ok && kitchenAccept.code === "NOT_ALLOWED", JSON.stringify(kitchenAccept));
+
+  const done = await transitionOrder(deps, scopeA, { orderId: raceId, expectedVersion: 2, path: ["preparing", "ready", "completed"] }, ownerActor);
+  const { data: cust } = await admin
+    .from("customers")
+    .select("total_orders, total_spent")
+    .eq("restaurant_id", restA.id)
+    .eq("phone", "+923007654321")
+    .single();
+  check(
+    "Completing an order updates the customer's totals",
+    done.ok && cust?.total_orders === 1 && cust.total_spent === 90000,
+    JSON.stringify([done, cust]),
+  );
+  const cancel = await transitionOrder(
+    deps,
+    scopeA,
+    { orderId, expectedVersion: 1, path: ["cancelled"], reason: "fake_order" },
+    ownerActor,
+  );
+  const { data: cust2 } = await admin.from("customers").select("cancelled_count").eq("restaurant_id", restA.id).eq("phone", "+923007654321").single();
+  const { data: cancelAudit } = await admin.from("audit_logs").select("id").eq("entity_id", orderId).eq("action", "order.cancelled");
+  check(
+    "Fake-order cancel counts against the customer and is audit-logged",
+    cancel.ok && cust2?.cancelled_count === 1 && (cancelAudit?.length ?? 0) === 1,
+    JSON.stringify([cancel, cust2, cancelAudit]),
+  );
 }
 
 type Rest = { id: string; branchId: string; slug: string };
