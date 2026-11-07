@@ -465,6 +465,61 @@ export function priceCartItem(
 }
 
 // ---------------------------------------------------------------------------
+// Order totals (subtotal from priced lines + manual fees/discount)
+// ---------------------------------------------------------------------------
+
+export type OrderTotals = {
+  subtotal: number;
+  deliveryFee: number;
+  discount: number;
+  tax: number;
+  serviceCharge: number;
+  total: number;
+};
+
+export type TotalsError = { code: "INVALID_AMOUNT" | "DISCOUNT_TOO_HIGH"; message: string };
+
+/**
+ * Totals for an order. `lines` must come from priceCartItem/resolveCartItem.
+ * Matches the database check: total = subtotal + delivery + tax + service − discount.
+ */
+export function computeOrderTotals(input: {
+  lines: { lineTotal: number }[];
+  deliveryFee?: number;
+  discount?: number;
+  tax?: number;
+  serviceCharge?: number;
+  /** Highest discount allowed, as a % of the subtotal (e.g. 50). */
+  maxDiscountPercent?: number;
+}): { ok: true; totals: OrderTotals } | { ok: false; error: TotalsError } {
+  const deliveryFee = input.deliveryFee ?? 0;
+  const discount = input.discount ?? 0;
+  const tax = input.tax ?? 0;
+  const serviceCharge = input.serviceCharge ?? 0;
+  for (const v of [deliveryFee, discount, tax, serviceCharge, ...input.lines.map((l) => l.lineTotal)]) {
+    if (!Number.isSafeInteger(v) || v < 0) {
+      return { ok: false, error: { code: "INVALID_AMOUNT", message: "Amounts must be whole paisa, not negative." } };
+    }
+  }
+  const subtotal = input.lines.reduce((sum, l) => sum + l.lineTotal, 0);
+  const maxPercent = input.maxDiscountPercent ?? 100;
+  const maxDiscount = Math.floor((subtotal * maxPercent) / 100);
+  if (discount > maxDiscount) {
+    return {
+      ok: false,
+      error: {
+        code: "DISCOUNT_TOO_HIGH",
+        message: maxPercent >= 100 ? "Discount can't be more than the items total." : `Discount can be at most ${maxPercent}% of the items total.`,
+      },
+    };
+  }
+  return {
+    ok: true,
+    totals: { subtotal, deliveryFee, discount, tax, serviceCharge, total: subtotal + deliveryFee + tax + serviceCharge - discount },
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Branch menu (staff screens + AI bot)
 // ---------------------------------------------------------------------------
 
