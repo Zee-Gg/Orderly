@@ -1,18 +1,17 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { publicEnv } from "@/lib/env";
+import type { Database } from "@/types/database";
 
 /**
  * Refreshes the Supabase auth session on every matched request and writes
  * the refreshed cookies to both the request (for Server Components) and the
- * response (for the browser).
- *
- * Phase 1: refresh only. Route protection (redirect to /login) comes with auth.
+ * response (for the browser). Returns the signed-in user's id, if any.
  */
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });
 
-  const supabase = createServerClient(
+  const supabase = createServerClient<Database>(
     publicEnv.NEXT_PUBLIC_SUPABASE_URL,
     publicEnv.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
     {
@@ -39,7 +38,24 @@ export async function updateSession(request: NextRequest) {
 
   // Do not put code between createServerClient and getClaims():
   // getClaims() is what triggers the token refresh.
-  await supabase.auth.getClaims();
+  const { data } = await supabase.auth.getClaims();
+  const userId = data?.claims?.sub ?? null;
 
-  return response;
+  return { response, userId };
+}
+
+/** Redirect while keeping any refreshed auth cookies. */
+export function redirectWithCookies(
+  request: NextRequest,
+  from: NextResponse,
+  pathname: string,
+  search?: Record<string, string>,
+) {
+  const url = request.nextUrl.clone();
+  url.pathname = pathname;
+  url.search = "";
+  for (const [k, v] of Object.entries(search ?? {})) url.searchParams.set(k, v);
+  const redirect = NextResponse.redirect(url);
+  from.cookies.getAll().forEach((c) => redirect.cookies.set(c));
+  return redirect;
 }
