@@ -1,51 +1,9 @@
 import { Bell } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { LiveStats } from "@/components/orders/live-alerts";
 import { BranchSwitcher } from "./branch-switcher";
 import { OpenToggle } from "./open-toggle";
 import { RestaurantBrand } from "./restaurant-brand";
 import type { ShellData } from "./shell-data";
-
-/** Placeholder quick stat. Values come from orders in a later phase. */
-function StatTile({
-  label,
-  value,
-  tone = "default",
-}: {
-  label: string;
-  value: string;
-  tone?: "default" | "pending";
-}) {
-  return (
-    <div
-      className={cn(
-        "min-w-0 rounded-card px-3 py-2 lg:px-4",
-        tone === "pending"
-          ? "border border-status-awaiting-border bg-status-awaiting-bg/70"
-          : "bg-subtle",
-      )}
-    >
-      <p
-        className={cn(
-          "flex items-center gap-1.5 truncate text-xs font-medium lg:text-sm",
-          tone === "pending" ? "text-status-awaiting-fg" : "text-muted",
-        )}
-      >
-        {tone === "pending" ? (
-          <span aria-hidden className="size-2 shrink-0 rounded-full bg-urgent" />
-        ) : null}
-        {label}
-      </p>
-      <p
-        className={cn(
-          "truncate text-xl font-bold lg:text-2xl",
-          tone === "pending" ? "text-status-awaiting-fg" : "text-ink",
-        )}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
 
 function NotificationBell() {
   return (
@@ -87,11 +45,7 @@ export function TopBar({ data }: { data: ShellData }) {
           canToggle={data.canToggleOpen}
         />
 
-        <div className="grid grid-cols-3 gap-2 lg:flex lg:gap-3">
-          <StatTile label="Orders today" value="—" />
-          <StatTile label="Sales today" value="—" />
-          <StatTile label="Pending" value="—" tone="pending" />
-        </div>
+        <LiveStats />
 
         <div className="ml-auto hidden items-center gap-3 lg:flex">
           <NotificationBell />
