@@ -10,7 +10,17 @@ export type AuditAction =
   | "staff.role_changed"
   | "staff.branch_changed"
   | "staff.deactivated"
-  | "staff.reactivated";
+  | "staff.reactivated"
+  | "menu_category.created"
+  | "menu_category.updated"
+  | "menu_category.archived"
+  | "menu_item.created"
+  | "menu_item.price_changed"
+  | "menu_item.archived"
+  | "modifier_group.archived"
+  | "modifier_option.price_changed";
+// Written inside the database: "restaurant.created", "menu_item.stock_changed",
+// "menu.bulk_price_update".
 
 /**
  * Append an entry to audit_logs as the signed-in user (RLS: members insert
