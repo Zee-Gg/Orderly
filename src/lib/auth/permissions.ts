@@ -33,6 +33,8 @@ export const PERMISSIONS = {
   "deliveries.view": ["rider"],
   "menu.view": FRONT_OF_HOUSE,
   "menu.edit": MANAGEMENT,
+  /** In stock / out of stock at a branch (DB: set_item_stock RPC). */
+  "menu.stock": ["owner", "manager", "staff", "kitchen"],
   "prices.edit": MANAGEMENT,
   "riders.view": FRONT_OF_HOUSE,
   "riders.manage": MANAGEMENT,
