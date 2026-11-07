@@ -26,9 +26,23 @@ const FRONT_OF_HOUSE: readonly Role[] = ["owner", "manager", "staff"];
 export const PERMISSIONS = {
   "orders.view": FRONT_OF_HOUSE,
   "orders.create": FRONT_OF_HOUSE,
+  /** Edit items in New/Accepted orders. */
   "orders.edit": FRONT_OF_HOUSE,
-  "orders.cancel": MANAGEMENT,
+  /** Edit an order the kitchen is already preparing. */
+  "orders.edit_preparing": MANAGEMENT,
+  /** Move orders along (kitchen: only start/finish cooking — see orders/status.ts). */
+  "orders.update_status": ["owner", "manager", "staff", "kitchen"],
+  /** Reject / cancel New and Accepted orders. */
+  "orders.cancel": FRONT_OF_HOUSE,
+  /** Cancel orders that are preparing or ready. */
+  "orders.cancel_late": MANAGEMENT,
+  "orders.hold": FRONT_OF_HOUSE,
+  "orders.discount": MANAGEMENT,
+  /** Place an order for a blocked customer (with a reason). */
+  "orders.override_block": MANAGEMENT,
   "orders.refund": ["owner"],
+  /** Mark cash received / transfer verified. */
+  "payments.record": FRONT_OF_HOUSE,
   "kitchen.view": ["owner", "manager", "staff", "kitchen"],
   "deliveries.view": ["rider"],
   "menu.view": FRONT_OF_HOUSE,
@@ -40,6 +54,9 @@ export const PERMISSIONS = {
   "riders.manage": MANAGEMENT,
   "riders.assign": FRONT_OF_HOUSE,
   "customers.view": FRONT_OF_HOUSE,
+  /** Notes and tags. */
+  "customers.edit": FRONT_OF_HOUSE,
+  "customers.block": MANAGEMENT,
   "inbox.access": FRONT_OF_HOUSE,
   "reports.view": MANAGEMENT,
   "settings.view": MANAGEMENT,
