@@ -18,9 +18,12 @@ export type AuditAction =
   | "menu_item.price_changed"
   | "menu_item.archived"
   | "modifier_group.archived"
-  | "modifier_option.price_changed";
+  | "modifier_option.price_changed"
+  | "customer.blocked"
+  | "customer.unblocked";
 // Written inside the database: "restaurant.created", "menu_item.stock_changed",
-// "menu.bulk_price_update".
+// "menu.bulk_price_update", "order.cancelled", "order.edited",
+// "order.blocked_customer_override" (written by the order engine).
 
 /**
  * Append an entry to audit_logs as the signed-in user (RLS: members insert
