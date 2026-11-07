@@ -127,27 +127,54 @@ Public read. Path `{restaurant_id}/logo-{timestamp}.{ext}`. Only owners of that 
 
 ---
 
-## Phase 3 — Menu
+## Phase 3 — Menu ✅ (built)
+
+UI words → table names: **Sizes** = `item_variants`, **Extras / Choices** = `modifier_groups` + `modifier_options`, **Other names customers use** = `menu_items.aliases`, **Can be removed** = `menu_items.removable_options`.
+
+All menu tables use composite FKs `(parent_id, restaurant_id)` → `parent(id, restaurant_id)`, so no row can reference another restaurant's data. Prices are integer paisa (`0 … 100,000,000`).
+**Nothing is hard-deleted** (no DELETE grant): items, sizes, groups, options and categories get `archived_at`. Archived rows are hidden everywhere except reports/past orders.
 
 ### `menu_categories`
-id, restaurant_id, name, name_ur (Urdu, optional), sort_order, is_active, timestamps.
+id, restaurant_id, name, name_ur, description, sort_order, is_active, archived_at, timestamps.
 
 ### `menu_items`
-id, restaurant_id, category_id → menu_categories, name, name_ur, description, image_url, **base_price_paisa int**, is_available (sold-out toggle, all branches), is_active, sort_order, tags text[] (e.g. spicy, bestseller), timestamps.
-Price changes → `audit_logs` (`menu_item.price_changed`).
+id, restaurant_id, category_id, name, name_ur, description, description_ur, image_url, **base_price** (nullable: only for items without sizes), is_active (shown on menu), sort_order, tags text[] (bestseller, spicy, new, vegetarian, deal, popular), prep_time_minutes, aliases text[] (≤30), removable_options text[] (≤30), archived_at, timestamps.
 
-### `menu_item_variants` (sizes: S/M/L, Half/Full)
-id, restaurant_id, item_id, name, price_paisa (absolute price), sort_order, is_default, is_active.
+### `item_variants` ("Sizes")
+id, restaurant_id, item_id, name, name_ur, **price** (full price for the size), is_default (max one live default per item), sort_order, is_active, archived_at, timestamps.
+*Differs from plan:* has `archived_at` (soft delete).
 
-### `menu_option_groups` / `menu_options` (add-ons, choices)
-- groups: id, restaurant_id, item_id, name ("Extra toppings"), min_select, max_select, sort_order.
-- options: id, restaurant_id, group_id, name, price_delta_paisa, is_available, sort_order.
+### `modifier_groups` ("Extras / Choices", reusable across items)
+id, restaurant_id, name, name_ur, min_select (0 = optional), max_select (≥1, ≥ min), sort_order, archived_at, timestamps.
 
-### `branch_item_availability`
-restaurant_id, branch_id, item_id, is_available — per-branch sold-out override. PK (branch_id, item_id).
+### `modifier_options`
+id, restaurant_id, group_id, name, name_ur, price_delta (≥ 0), is_default, is_available, sort_order, archived_at, timestamps.
+*Differs from plan:* has `archived_at`.
 
-Storage bucket `menu-images` (public read, owner/manager write to own restaurant folder).
-RLS: members read; owner/manager write; **anon reads active items of active restaurants** via a security-definer RPC for the public menu page `/m/[slug]` (not direct table access).
+### `item_modifier_groups`
+PK (item_id, group_id), restaurant_id, sort_order. The only menu table rows can be deleted from (detaching a group).
+
+### `branch_item_settings`
+PK (branch_id, item_id), restaurant_id, is_available (in stock), is_hidden (not sold here), price_override (items without sizes), updated_at.
+
+### `branch_variant_prices`
+PK (branch_id, variant_id), restaurant_id, price, updated_at.
+
+**RLS:** members read (branch tables: members who can access the branch); owner/manager write. Stock for staff/kitchen only via `set_item_stock()`.
+
+**RPCs**
+| Function | Security | Purpose |
+| --- | --- | --- |
+| `set_item_stock(branch, item, available)` | definer | owner/manager/staff/kitchen with branch access; changes only `is_available`; writes `menu_item.stock_changed` audit |
+| `save_menu_item(restaurant, item jsonb)` | invoker | item + sizes + extras links + branch settings/prices in one transaction; removed sizes archived |
+| `save_modifier_group(restaurant, group jsonb)` | invoker | group + options in one transaction; removed options archived |
+| `reorder_menu_categories`, `reorder_menu_items` | invoker | drag-and-drop order |
+| `apply_price_changes(restaurant, changes, audit)` | invoker | bulk price update + ONE `menu.bulk_price_update` audit entry, atomically |
+| `get_public_menu(slug, branch_id)` | definer, **anon** | the only public read path; trial/active restaurants, active branch, active non-archived non-hidden items with branch prices and stock |
+
+**Pricing:** every price is computed by `src/lib/menu/pricing.ts` (`resolveCartItem`, `getBranchMenu`). Effective price = branch size price ?? size price, or branch price_override ?? base_price, plus selected option deltas.
+
+Storage bucket `menu-images`: public read; owner/manager write inside `{restaurant_id}/`. Photos are resized to ≤1200px WebP (~200 KB) in the browser.
 
 ---
 
@@ -175,7 +202,7 @@ id, restaurant_id, customer_id, label, address_text, area, landmark, latitude, l
 | idempotency_key | unique — retried submits never double-create |
 
 ### `order_items`
-id, restaurant_id, order_id, menu_item_id, variant_id, **snapshot** name/variant name, unit_price_paisa, quantity, options jsonb (snapshot of chosen options with price deltas), line_total_paisa, note.
+id, restaurant_id, order_id, menu_item_id, variant_id, unit_price, quantity, line_total, note, and **`snapshot jsonb`** = the `CartItemSnapshot` returned by `resolveCartItem()` (item/size/option names + prices, removals, unit price, quantity, line total, priced_at). Never re-read menu prices for an existing order.
 
 ### `order_status_history`
 id, restaurant_id, order_id, from_status, to_status, changed_by, created_at. Written by trigger.
