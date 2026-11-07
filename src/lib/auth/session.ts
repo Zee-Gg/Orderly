@@ -1,5 +1,6 @@
 import "server-only";
 import { cache } from "react";
+import { connection } from "next/server";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
@@ -24,7 +25,7 @@ export type CurrentUser = {
 
 export type RestaurantSummary = Pick<
   Tables<"restaurants">,
-  "id" | "name" | "slug" | "logo_url" | "status" | "city" | "phone" | "whatsapp_number"
+  "id" | "name" | "slug" | "logo_url" | "status" | "city" | "phone" | "whatsapp_number" | "timezone"
 >;
 
 export type BranchSummary = Pick<
@@ -58,6 +59,9 @@ export class PermissionError extends Error {
 }
 
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
+  // Session checks compare token expiry with the clock: always request-time,
+  // never part of a prerender (Next would flag Supabase's Date.now()).
+  await connection();
   const supabase = await createClient();
   // getClaims() verifies the JWT; never trust getSession() on the server.
   const { data } = await supabase.auth.getClaims();
@@ -85,7 +89,7 @@ export const getMemberships = cache(async (): Promise<MembershipWithRestaurant[]
   const { data } = await supabase
     .from("memberships")
     .select(
-      "id, restaurant_id, branch_id, role, is_active, restaurant:restaurants(id, name, slug, logo_url, status, city, phone, whatsapp_number)",
+      "id, restaurant_id, branch_id, role, is_active, restaurant:restaurants(id, name, slug, logo_url, status, city, phone, whatsapp_number, timezone)",
     )
     .eq("user_id", user.id)
     .eq("is_active", true)
