@@ -11,6 +11,8 @@ export type InputProps = ComponentProps<"input"> & {
   error?: ReactNode;
   /** Optional icon inside the input, on the left (e.g. a search icon). */
   leadingIcon?: ReactNode;
+  /** Optional element inside the input, on the right (e.g. a show/hide button). */
+  trailing?: ReactNode;
   wrapperClassName?: string;
 };
 
@@ -20,6 +22,7 @@ export function Input({
   hint,
   error,
   leadingIcon,
+  trailing,
   required,
   className,
   wrapperClassName,
@@ -51,10 +54,16 @@ export function Input({
             controlClasses,
             "h-touch",
             leadingIcon && "pl-11",
+            trailing && "pr-14",
             className,
           )}
           {...props}
         />
+        {trailing ? (
+          <span className="absolute inset-y-0 right-0 flex items-center">
+            {trailing}
+          </span>
+        ) : null}
       </div>
     </Field>
   );
