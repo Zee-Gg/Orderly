@@ -6,7 +6,10 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint"
+    "lint": "eslint",
+    "db:types": "npx supabase gen types typescript --remote > src/types/database.ts",
+    "db:push": "npx supabase db push --remote",
+    "test:rls": "tsx scripts/test-rls.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
@@ -28,6 +31,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.5",
     "tailwindcss": "^4",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }
