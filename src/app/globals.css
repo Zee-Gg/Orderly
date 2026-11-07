@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+/*
+ * Orderly design tokens — from /design/04 - Design System.png
+ * Light mode only for v0.1. Tailwind default scale; Inter + Noto Nastaliq Urdu.
+ */
+@theme {
+  /* ---------- Fonts (variables set by next/font in layout.tsx) ---------- */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-urdu: var(--font-noto-nastaliq-urdu), "Noto Nastaliq Urdu", serif;
+
+  /* ---------- Brand: "Tandoor" (Tailwind orange) ---------- */
+  --color-brand-50: #fff7ed;
+  --color-brand-100: #ffedd5;
+  --color-brand-200: #fed7aa;
+  --color-brand-600: #ea580c;
+  --color-brand-700: #c2410c; /* primary */
+  --color-brand-800: #9a3412; /* primary hover */
+
+  /* ---------- Neutrals (Tailwind stone — warm gray) ---------- */
+  --color-page: #fafaf9; /* stone-50 — app background */
+  --color-surface: #ffffff; /* cards, panels */
+  --color-subtle: #f5f5f4; /* stone-100 — stat tiles, ghost hover */
+  --color-line: #e7e5e4; /* stone-200 — borders */
+  --color-line-strong: #d6d3d1; /* stone-300 — input borders */
+  --color-muted: #57534e; /* stone-600 — secondary text */
+  --color-ink: #1c1917; /* stone-900 — main text */
+
+  /* ---------- Functional ---------- */
+  --color-whatsapp: #16a34a; /* green-600 — WhatsApp icons only */
+  --color-danger: #b91c1c; /* red-700 */
+  --color-danger-hover: #991b1b; /* red-800 */
+  --color-urgent: #f59e0b; /* amber-500 */
+
+  /* ---------- Order status (bg = *-100, fg = *-800, border = *-300) ----------
+     awaiting=amber, accepted=blue, preparing=orange, ready=green,
+     out_for_delivery=purple, delivered=gray(stone), cancelled=red */
+  --color-status-awaiting-bg: #fef3c7;
+  --color-status-awaiting-fg: #92400e;
+  --color-status-awaiting-border: #fcd34d;
+  --color-status-accepted-bg: #dbeafe;
+  --color-status-accepted-fg: #1e40af;
+  --color-status-accepted-border: #93c5fd;
+  --color-status-preparing-bg: #ffedd5;
+  --color-status-preparing-fg: #9a3412;
+  --color-status-preparing-border: #fdba74;
+  --color-status-ready-bg: #dcfce7;
+  --color-status-ready-fg: #166534;
+  --color-status-ready-border: #86efac;
+  --color-status-delivery-bg: #f3e8ff;
+  --color-status-delivery-fg: #6b21a8;
+  --color-status-delivery-border: #d8b4fe;
+  --color-status-delivered-bg: #f5f5f4;
+  --color-status-delivered-fg: #44403c;
+  --color-status-delivered-border: #d6d3d1;
+  --color-status-cancelled-bg: #fee2e2;
+  --color-status-cancelled-fg: #991b1b;
+  --color-status-cancelled-border: #fca5a5;
+
+  /* ---------- Radius ---------- */
+  --radius-control: 10px; /* buttons, inputs */
+  --radius-card: 12px; /* cards, panels (rounded-xl) */
+  --radius-panel: 16px; /* modals, page sections */
+
+  /* ---------- Shadows ---------- */
+  --shadow-card: 0 1px 2px 0 rgb(28 25 23 / 0.06);
+  --shadow-raised: 0 4px 12px -2px rgb(28 25 23 / 0.1),
+    0 2px 4px -2px rgb(28 25 23 / 0.06);
+  --shadow-overlay: 0 20px 40px -8px rgb(28 25 23 / 0.25);
+
+  /* ---------- Sizes ---------- */
+  --spacing-touch: 44px; /* min touch target, default control height */
+  --spacing-touch-lg: 56px; /* large buttons, bottom nav */
+  --spacing-sidebar: 280px;
+
+  /* ---------- Motion ---------- */
+  --animate-urgent-ring: urgent-ring 1.6s ease-in-out infinite;
+  --animate-toast-in: toast-in 180ms ease-out;
+  --animate-drawer-in: drawer-in 200ms ease-out;
+  --animate-fade-in: fade-in 150ms ease-out;
+
+  @keyframes urgent-ring {
+    0%,
+    100% {
+      box-shadow: 0 0 0 0 rgb(245 158 11 / 0.55);
+    }
+    50% {
+      box-shadow: 0 0 0 6px rgb(245 158 11 / 0);
+    }
+  }
+  @keyframes toast-in {
+    from {
+      opacity: 0;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes drawer-in {
+    from {
+      transform: translateX(100%);
+    }
+    to {
+      transform: translateX(0);
+    }
+  }
+  @keyframes fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+}
+
+/* Urdu text: Nastaliq needs a tall line-height or descenders clip. */
+@utility font-urdu {
+  font-family: var(--font-urdu);
+  line-height: 2;
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background-color: var(--color-page);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-brand-700);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
