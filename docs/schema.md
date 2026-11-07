@@ -37,11 +37,13 @@ update this file in the same change.
 | --- | --- | --- |
 | `member_role` | owner, manager, staff, kitchen, rider | 2 |
 | `restaurant_status` | trial, active, suspended | 2 |
-| `order_status` | awaiting, accepted, preparing, ready, out_for_delivery, delivered, cancelled | 4 |
-| `order_type` | delivery, pickup | 4 |
-| `order_source` | whatsapp, phone, walk_in, web | 4 |
-| `payment_method` | cod, bank_transfer (later: jazzcash, easypaisa, card) | 4 |
-| `payment_status` | unpaid, pending_verification, paid, refunded, partially_refunded | 4 |
+| `order_status` | pending_confirmation, awaiting_acceptance, accepted, preparing, ready, out_for_delivery, delivered, completed, cancelled, failed | 4 ✅ |
+| `order_type` | delivery, pickup, dine_in | 4 ✅ |
+| `order_source` | whatsapp, phone, walk_in, web | 4 ✅ |
+| `payment_method` | cod, card_on_delivery, bank_transfer, online_link | 4 ✅ |
+| `payment_status` | unpaid, pending_verification, paid, refunded, partially_refunded | 4 ✅ |
+| `order_event_type` | created, status_changed, edited, held, unheld, cancelled, payment_updated, note_added, printed | 4 ✅ |
+| `actor_type` | staff, customer, bot, system | 4 ✅ |
 | `conversation_mode` | bot, staff | 6 |
 | `message_direction` | inbound, outbound | 6 |
 
@@ -178,37 +180,58 @@ Storage bucket `menu-images`: public read; owner/manager write inside `{restaura
 
 ---
 
-## Phase 4 — Customers & orders
+## Phase 4 — Customers & orders ✅ (built)
+
+**Golden rule: no client ever writes orders.** `authenticated` has SELECT only on order tables. All writes go through service-role-only RPCs, called by the order engine (`src/lib/orders/engine.ts`) after a permission + branch check, with every price from the pricing engine. A CHECK constraint enforces `total = subtotal + delivery_fee + tax + service_charge − discount`.
 
 ### `customers`
-id, restaurant_id, phone (E.164, unique per restaurant), name, notes, is_blocked, fake_order_count, total_orders, total_spent_paisa, last_order_at, timestamps.
+id, restaurant_id, phone (**E.164**, unique per restaurant), name, whatsapp_id, notes, tags text[], is_blocked, blocked_reason, total_orders, total_spent (bigint paisa), cancelled_count (fake-order cancels), refused_count (refused deliveries), last_order_at, marketing_opt_in, timestamps.
+Created/found by phone inside `create_order`. Users may update only name/notes/tags/marketing_opt_in; stats and blocking are server-only.
 
 ### `customer_addresses`
-id, restaurant_id, customer_id, label, address_text, area, landmark, latitude, longitude, is_default.
+id, restaurant_id, customer_id, label, address_text, area, landmark, latitude, longitude, is_default, created_at. Saved from delivery orders (deduplicated by text).
+
+### `order_counters`
+restaurant_id PK, last_number. Atomic upsert in `create_order` → #1001, #1002… per restaurant.
 
 ### `orders`
-| Column | Notes |
-| --- | --- |
-| id, restaurant_id, branch_id | composite FK to branch |
-| order_number int | per-restaurant sequence (shown as #1042), unique (restaurant_id, order_number) |
-| customer_id, address_id | |
-| status order_status, type order_type, source order_source | |
-| subtotal_paisa, delivery_fee_paisa, discount_paisa, total_paisa | **computed by backend only** (no column grants) |
-| payment_method, payment_status | |
-| customer_note, kitchen_note | |
-| rider_id | → profiles (membership role rider) |
-| confirmed_by_customer_at | must be set before `accepted` (rule: kitchen only after explicit confirmation) |
-| accepted_at, ready_at, picked_up_at, delivered_at, cancelled_at, cancel_reason, cancelled_by | |
-| idempotency_key | unique — retried submits never double-create |
+id, restaurant_id, branch_id, order_number, customer_id (null for walk-ins), customer_name/customer_phone (snapshots), order_type, source, status, is_on_hold, hold_reason, payment_method, payment_status, subtotal, delivery_fee, discount, tax, service_charge, total, address snapshot (address_text, area, landmark, latitude, longitude), table_number, notes, scheduled_for, expected_ready_at, accepted_at, preparing_at, ready_at, dispatched_at, delivered_at, completed_at, cancelled_at, failed_at, cancel_reason, cancel_note, cancelled_by, rider_id (no FK until Phase 9), **version** (optimistic locking), idempotency_key (unique per restaurant), created_by, timestamps.
+Index (restaurant_id, branch_id, status, created_at). In the `supabase_realtime` publication.
 
 ### `order_items`
-id, restaurant_id, order_id, menu_item_id, variant_id, unit_price, quantity, line_total, note, and **`snapshot jsonb`** = the `CartItemSnapshot` returned by `resolveCartItem()` (item/size/option names + prices, removals, unit price, quantity, line total, priced_at). Never re-read menu prices for an existing order.
+id, restaurant_id, order_id, item_id, variant_id (plain ids), item_name, size_name, quantity, unit_price, line_total (CHECK = unit × qty), removals, notes, **snapshot jsonb** (`CartItemSnapshot` from the pricing engine), is_cancelled (true = replaced by an edit), created_at.
 
-### `order_status_history`
-id, restaurant_id, order_id, from_status, to_status, changed_by, created_at. Written by trigger.
+### `order_item_modifiers`
+id, restaurant_id, order_item_id, option_id, group_name, option_name, price_delta (snapshots).
 
-Order creation, edits, status changes and cancellation go through server actions / RPCs that recompute totals from the menu tables. Edits and cancellations write `audit_logs`.
-RLS: members with branch access read; staff+ insert/update via RPCs; kitchen reads accepted/preparing; rider reads orders assigned to them.
+### `order_events` (timeline, insert-only)
+id, restaurant_id, order_id, event_type, from_status, to_status, actor_type, actor_user_id, data jsonb, created_at. In the realtime publication. **Never store phone/address in `data`** — kitchen can read events.
+
+### `payments`
+id, restaurant_id, order_id, method, amount (= order total, from the DB), status, reference, verified_by, verified_at, created_at. Only via `record_payment` — never automatic.
+
+### Branch order settings (columns on `branches`)
+accept_alert_minutes (3), default_prep_minutes (20), auto_accept_orders (false, for bot orders later), late_order_minutes (30), staff_orders_need_acceptance (false → staff orders start "accepted").
+
+### RLS
+| Table | Who reads |
+| --- | --- |
+| orders, payments | owner/manager/staff with access to the order's branch |
+| order_items, order_item_modifiers, order_events | the above **plus kitchen** |
+| customers, customer_addresses | owner/manager/staff (restaurant-wide) |
+| `kitchen_orders` view | owner/manager/staff/kitchen with branch access — **no phone, address or money columns** |
+| order_counters | nobody (server only) |
+
+### RPCs (service role only)
+| Function | Does |
+| --- | --- |
+| `create_order(p)` | idempotency (advisory lock + unique key), customer find/create, address save, number, order + items + modifiers + `created` event — one transaction |
+| `transition_order_status(...)` | row lock, version check, state machine + role rules (mirrors `src/lib/orders/status.ts`), timestamps, event, customer stats, `order.cancelled` audit |
+| `edit_order(p)` | version check, old items → is_cancelled, new priced items, totals, `edited` event (before/after, kitchen_alert), `order.edited` audit |
+| `set_order_hold(...)` | hold/unhold with reason, event |
+| `record_payment(...)` | payments row + payment_status = paid + event |
+
+State machine: pending_confirmation → awaiting_acceptance | cancelled; awaiting_acceptance → accepted | cancelled; accepted → preparing | cancelled; preparing → ready | cancelled (manager+); ready → out_for_delivery (delivery) | completed (pickup/dine-in) | cancelled (manager+); out_for_delivery → delivered | failed; delivered → completed. Kitchen may only do accepted→preparing and preparing→ready. Held orders can only be cancelled.
 
 ---
 
@@ -245,7 +268,7 @@ Webhooks use the admin client (no user session) and must always scope writes by 
 ## Phase 7 — Payments (records only, no gateways in MVP)
 
 ### `payments`
-id, restaurant_id, order_id, method payment_method, amount_paisa, status, reference (bank transfer ref), proof_url (screenshot), verified_by, verified_at, created_at.
+Built in Phase 4 (see above). Later: add proof_url (transfer screenshot) and gateway fields.
 
 ### `refunds`
 id, restaurant_id, order_id, payment_id, amount_paisa, reason, created_by, created_at. Always writes `audit_logs` (`order.refunded`).
