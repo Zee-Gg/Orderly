@@ -50,6 +50,19 @@ Users: restaurant owner, manager, staff (cashier/order taker), kitchen, rider, a
 - docs/schema.md        → planned schema for the whole MVP. Follow it; update it when the plan changes
 - scripts/test-rls.ts   → RLS isolation test
 
+## Pricing (Phase 3) — ONE source of truth
+- ALL prices come from `src/lib/menu/pricing.ts`: `resolveCartItem(db, input)` for one line (validates stock, sizes, extras rules, removals; returns typed error codes + a snapshot), `resolveCart`, and `getBranchMenu(db, restaurantId, branchId)`.
+- Never compute a price anywhere else — not in components, not in order code, not in the AI. Never accept a price from the browser or the bot.
+- Orders store the `snapshot` from `resolveCartItem`, so menu changes never alter past orders.
+- Pass the right client: the user's server client (RLS) for staff; the admin client for webhooks (then always scope by `restaurantId`).
+- Pure logic is unit-tested in `pricing.test.ts` (`npm test`). Add a test for every new pricing rule.
+
+## Soft delete
+- Never hard-delete menu items, sizes, extras, options, categories (or anything an order might reference). Set `archived_at`; the API has no DELETE grant on these tables. Archived rows are hidden everywhere except reports and past orders.
+
+## Plain words in the UI
+- Show "Sizes", "Extras / Choices", "Can be removed", "Other names customers use". Never "variants", "modifiers", "aliases".
+
 ## Database & security (built in Phase 2)
 - Apply migrations: `npm run db:push` (linked project). Then `npm run db:types`.
 - New table checklist: `restaurant_id`, RLS enabled with policies in the SAME migration, `revoke all ... from anon, authenticated` then column-level `grant insert (...)`/`grant update (...)` so protected columns can't be written from the browser, indexes on every FK, `updated_at` trigger (`private.set_updated_at`).
@@ -78,5 +91,6 @@ Inventory, recipe costing, accounting, payroll, loyalty points, marketing campai
 
 ## Working style
 - Work in small steps. Explain the plan before big changes.
-- After each task: run `npm run build`, `npm run lint` and `npm run test:rls`, and fix all errors.
+- After each task: run `npm run build`, `npm run lint`, `npm test` and `npm run test:rls`, and fix all errors.
+- Demo data: `npm run seed:menu -- <restaurant-slug>` seeds a Pakistani demo menu (refuses if a menu exists).
 - Do not install new packages without saying why.
