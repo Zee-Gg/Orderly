@@ -2,6 +2,7 @@ import "server-only";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { publicEnv } from "@/lib/env";
+import type { Database } from "@/types/database";
 
 /**
  * Supabase client with the SECRET key. Bypasses RLS.
@@ -14,7 +15,7 @@ export function createAdminClient() {
     .min(1, "SUPABASE_SECRET_KEY is missing")
     .parse(process.env.SUPABASE_SECRET_KEY);
 
-  return createClient(publicEnv.NEXT_PUBLIC_SUPABASE_URL, secretKey, {
+  return createClient<Database>(publicEnv.NEXT_PUBLIC_SUPABASE_URL, secretKey, {
     auth: {
       autoRefreshToken: false,
       persistSession: false,
