@@ -89,7 +89,7 @@ async function makeRestaurant(owner: TestUser, label: string) {
     .select("id")
     .eq("restaurant_id", data)
     .single();
-  return { id: data, branchId: branch!.id };
+  return { id: data, branchId: branch!.id, slug: `rls-${label}-${RUN}` };
 }
 
 const fakePng = new Blob([new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10])], {
@@ -370,6 +370,208 @@ async function main() {
     p_opening_hours: HOURS,
   });
   check("Anonymous users cannot create restaurants", anonRpc.error !== null, JSON.stringify(anonRpc));
+
+  await menuChecks(ownerA, ownerB, kitchenA, restA, restB);
+}
+
+type Rest = { id: string; branchId: string; slug: string };
+
+async function menuChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest, restB: Rest) {
+  section("Menu: owner builds a menu");
+  const cat = await ownerA.client
+    .from("menu_categories")
+    .insert({ restaurant_id: restA.id, name: "Burgers" })
+    .select("id")
+    .single();
+  check("Owner A can create a category", !cat.error, JSON.stringify(cat.error));
+  const categoryId = cat.data!.id;
+
+  const grp = await ownerA.client.rpc("save_modifier_group", {
+    p_restaurant_id: restA.id,
+    p_group: { name: "Extras", min_select: 0, max_select: 2, options: [{ name: "Cheese", price_delta: 5000 }] },
+  });
+  check("Owner A can create an extras group", !grp.error, JSON.stringify(grp.error));
+
+  const saved = await ownerA.client.rpc("save_menu_item", {
+    p_restaurant_id: restA.id,
+    p_item: {
+      category_id: categoryId,
+      name: "Zinger",
+      base_price: null,
+      sizes: [{ key: "r", name: "Regular", price: 55000, is_default: true }],
+      group_ids: [grp.data],
+      branches: [
+        {
+          branch_id: restA.branchId,
+          is_hidden: false,
+          is_available: true,
+          price_override: null,
+          size_prices: [{ size_key: "r", price: 60000 }],
+        },
+      ],
+    },
+  });
+  check("Owner A can save an item with sizes, extras and branch prices", !saved.error, JSON.stringify(saved.error));
+  const itemId = saved.data as string;
+  const { data: variant } = await admin.from("item_variants").select("id").eq("item_id", itemId).single();
+
+  section("Menu: restaurant B cannot see or change A's menu");
+  const b = ownerB.client;
+  for (const table of [
+    "menu_categories",
+    "menu_items",
+    "item_variants",
+    "modifier_groups",
+    "modifier_options",
+    "item_modifier_groups",
+    "branch_item_settings",
+    "branch_variant_prices",
+  ] as const) {
+    const r = await b.from(table).select("restaurant_id").eq("restaurant_id", restA.id);
+    check(`B cannot read A's ${table}`, !r.error && r.data.length === 0, JSON.stringify(r));
+  }
+
+  const bPrice = await b.from("menu_items").update({ base_price: 1 }).eq("id", itemId).select("id");
+  const bSize = await b.from("item_variants").update({ price: 1 }).eq("id", variant!.id).select("id");
+  const { data: priceAfter } = await admin.from("item_variants").select("price").eq("id", variant!.id).single();
+  check(
+    "B cannot change A's prices",
+    (bPrice.error !== null || bPrice.data.length === 0) &&
+      (bSize.error !== null || bSize.data.length === 0) &&
+      priceAfter?.price === 55000,
+    JSON.stringify([bPrice, bSize]),
+  );
+
+  const bIntoA = await b
+    .from("menu_items")
+    .insert({ restaurant_id: restB.id, category_id: categoryId, name: "Sneaky" });
+  check("B cannot put an item into A's category", bIntoA.error !== null, JSON.stringify(bIntoA));
+  const bRpc = await b.rpc("save_menu_item", {
+    p_restaurant_id: restA.id,
+    p_item: { id: itemId, category_id: categoryId, name: "HACKED", base_price: 1, sizes: [], group_ids: [], branches: [] },
+  });
+  const { data: nameAfter } = await admin.from("menu_items").select("name").eq("id", itemId).single();
+  check(
+    "B cannot edit A's item through save_menu_item",
+    bRpc.error !== null && nameAfter?.name === "Zinger",
+    JSON.stringify(bRpc.error),
+  );
+  const bStock = await b.rpc("set_item_stock", { p_branch_id: restA.branchId, p_item_id: itemId, p_is_available: false });
+  check("B cannot change A's stock", bStock.error !== null, JSON.stringify(bStock));
+
+  section("Menu: kitchen can toggle stock, nothing else");
+  const k = kitchenA.client;
+  const kStock = await k.rpc("set_item_stock", { p_branch_id: restA.branchId, p_item_id: itemId, p_is_available: false });
+  const { data: stockAfter } = await admin
+    .from("branch_item_settings")
+    .select("is_available")
+    .eq("branch_id", restA.branchId)
+    .eq("item_id", itemId)
+    .single();
+  check(
+    "Kitchen can mark an item out of stock",
+    !kStock.error && stockAfter?.is_available === false,
+    JSON.stringify(kStock.error),
+  );
+
+  const { data: stockAudit } = await admin
+    .from("audit_logs")
+    .select("user_id, new_data")
+    .eq("action", "menu_item.stock_changed")
+    .eq("entity_id", itemId);
+  check(
+    "Stock change is audit-logged with who and which branch",
+    !!stockAudit?.some(
+      (a) => a.user_id === kitchenA.id && (a.new_data as { branch_id?: string } | null)?.branch_id === restA.branchId,
+    ),
+    JSON.stringify(stockAudit),
+  );
+
+  const kDirect = await k
+    .from("branch_item_settings")
+    .update({ price_override: 1, is_hidden: true })
+    .eq("item_id", itemId)
+    .select("item_id");
+  check(
+    "Kitchen cannot edit branch settings directly",
+    kDirect.error !== null || kDirect.data.length === 0,
+    JSON.stringify(kDirect),
+  );
+
+  const kPrice = await k.from("menu_items").update({ base_price: 1 }).eq("id", itemId).select("id");
+  const kVariant = await k.from("item_variants").update({ price: 1 }).eq("id", variant!.id).select("id");
+  const kBranchPrice = await k
+    .from("branch_variant_prices")
+    .update({ price: 1 })
+    .eq("variant_id", variant!.id)
+    .select("variant_id");
+  const kName = await k.from("menu_items").update({ name: "Kitchen Special" }).eq("id", itemId).select("id");
+  const { data: kAfter } = await admin.from("menu_items").select("name, base_price").eq("id", itemId).single();
+  check(
+    "Kitchen cannot change prices",
+    [kPrice, kVariant, kBranchPrice].every((r) => r.error !== null || r.data.length === 0) &&
+      kAfter?.base_price === null,
+    JSON.stringify([kPrice, kVariant, kBranchPrice]),
+  );
+  check(
+    "Kitchen cannot rename items",
+    (kName.error !== null || kName.data.length === 0) && kAfter?.name === "Zinger",
+    JSON.stringify(kName),
+  );
+
+  const kCat = await k.from("menu_categories").insert({ restaurant_id: restA.id, name: "Kitchen" });
+  check("Kitchen cannot create categories", kCat.error !== null, JSON.stringify(kCat));
+  const kSave = await k.rpc("save_menu_item", {
+    p_restaurant_id: restA.id,
+    p_item: { id: itemId, category_id: categoryId, name: "Kitchen", base_price: 1, sizes: [], group_ids: [], branches: [] },
+  });
+  check("Kitchen cannot edit items through save_menu_item", kSave.error !== null, JSON.stringify(kSave.error));
+
+  section("Menu: soft delete only");
+  const del = await ownerA.client.from("menu_items").delete().eq("id", itemId).select("id");
+  const delVariant = await ownerA.client.from("item_variants").delete().eq("id", variant!.id).select("id");
+  const { data: stillThere } = await admin.from("menu_items").select("id").eq("id", itemId);
+  check(
+    "Owner cannot hard-delete items or sizes",
+    (del.error !== null || del.data.length === 0) &&
+      (delVariant.error !== null || delVariant.data.length === 0) &&
+      stillThere?.length === 1,
+    JSON.stringify([del, delVariant]),
+  );
+
+  section("Public menu (get_public_menu)");
+  const anon = createClient<Database>(url!, publishableKey!, noSession);
+  const anonTable = await anon.from("menu_items").select("id");
+  check(
+    "Anonymous users cannot read menu tables directly",
+    anonTable.error !== null || anonTable.data.length === 0,
+    JSON.stringify(anonTable),
+  );
+
+  type PublicMenu = {
+    categories: { items: { name: string; is_available: boolean; sizes: { price: number }[] }[] }[];
+  } | null;
+  const pub = await anon.rpc("get_public_menu", { p_restaurant_slug: restA.slug, p_branch_id: restA.branchId });
+  const pubItem = (pub.data as PublicMenu)?.categories[0]?.items[0];
+  check(
+    "Public menu shows the item with its branch size price and stock",
+    !pub.error && pubItem?.name === "Zinger" && pubItem.sizes[0]?.price === 60000 && pubItem.is_available === false,
+    JSON.stringify(pub),
+  );
+  const wrongBranch = await anon.rpc("get_public_menu", { p_restaurant_slug: restA.slug, p_branch_id: restB.branchId });
+  check(
+    "Public menu returns nothing for another restaurant's branch",
+    !wrongBranch.error && wrongBranch.data === null,
+    JSON.stringify(wrongBranch),
+  );
+
+  await admin.from("restaurants").update({ status: "suspended" }).eq("id", restA.id);
+  const suspended = await anon.rpc("get_public_menu", { p_restaurant_slug: restA.slug, p_branch_id: restA.branchId });
+  check(
+    "Public menu returns nothing for a suspended restaurant",
+    !suspended.error && suspended.data === null,
+    JSON.stringify(suspended),
+  );
 }
 
 async function cleanup() {
