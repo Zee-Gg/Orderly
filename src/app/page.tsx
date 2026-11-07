@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-// Until auth exists, the app opens straight on the Orders board.
+// Every visit to "/" goes through the single post-login router.
 export default function Home() {
-  redirect("/orders");
+  redirect("/auth/continue");
 }
