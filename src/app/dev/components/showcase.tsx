@@ -21,7 +21,7 @@ import {
   ORDER_STATUSES,
   ORDER_TYPES,
   PAYMENT_KINDS,
-} from "@/lib/orders";
+} from "@/lib/orders/constants";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
