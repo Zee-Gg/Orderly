@@ -57,6 +57,20 @@ Users: restaurant owner, manager, staff (cashier/order taker), kitchen, rider, a
 - Pass the right client: the user's server client (RLS) for staff; the admin client for webhooks (then always scope by `restaurantId`).
 - Pure logic is unit-tested in `pricing.test.ts` (`npm test`). Add a test for every new pricing rule.
 
+## Orders (Phase 4) — the order engine
+- ALL order writes go through `src/lib/orders/engine.ts` (`createOrder`, `transitionOrder`, `editOrder`, `setOrderHold`, `recordPayment`). It re-prices every line with the pricing engine and calls service-role-only RPCs (`create_order`, `transition_order_status`, `edit_order`, `set_order_hold`, `record_payment`).
+- NEVER insert/update `orders`, `order_items`, `order_item_modifiers`, `payments`, `order_counters` from the client or with a user client — `authenticated` has no write grants and can't execute those RPCs. Server actions in `src/lib/orders/actions.ts` check `requirePermission` + the member's branches (`Scope`), then call the engine with the admin client.
+- The engine has no Next.js imports so scripts/tests/webhooks can use it. Bots/webhooks pass `actor: { type: "bot" }` and `scope.branchIds: null` (any branch of that restaurant — resolve the restaurant from the WhatsApp number first).
+- State machine lives in `src/lib/orders/status.ts` AND in Postgres (`private.order_transition_allowed` + role checks in `transition_order_status`). Change both together. Late cancels (preparing/ready) are manager+; kitchen only does accepted→preparing→ready; held orders can only be cancelled.
+- Optimistic locking: every write passes `expectedVersion`. On `VERSION_CONFLICT` show "already updated by someone else" and refresh.
+- Idempotency: `createOrder` needs an `idempotencyKey` (one per order screen / per bot confirmation). Same key → same order.
+- `emitOrderEvent(order, event)` in `src/lib/orders/events.ts` is THE hook called after every order change. Phase 6 adds WhatsApp customer notifications there — and nowhere else. It must never throw or block.
+- Kitchen never sees customer phone/address: kitchen reads `kitchen_orders` (view) + `order_items`/`order_events`. Don't put PII in `order_events.data`.
+- "Today" = restaurant timezone (default Asia/Karachi): use `todayRange()` from `src/lib/time.ts`, never UTC dates.
+- Phones are stored E.164 via `normalizePhone()` (`src/lib/orders/phone.ts`); show with `formatPhone()`.
+- Live dashboard: `OrdersLiveProvider` (dashboard layout) = realtime (joins with the user's token — required for RLS), 20s polling fallback, catch-up on reconnect, alerts/sound/title. Use `useOrdersLive()`; don't open more realtime channels for orders.
+- Test data: `npm run simulate:orders -- <slug> [--every 8] [--count 10]` creates orders through the real engine.
+
 ## Soft delete
 - Never hard-delete menu items, sizes, extras, options, categories (or anything an order might reference). Set `archived_at`; the API has no DELETE grant on these tables. Archived rows are hidden everywhere except reports and past orders.
 
