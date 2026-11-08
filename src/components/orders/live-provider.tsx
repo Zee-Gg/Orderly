@@ -12,16 +12,15 @@ import {
 } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast";
-import { useOnline } from "@/components/ui/offline-banner";
 import { fetchLiveSnapshotAction } from "@/lib/orders/actions";
 import type { BoardOrder, LiveSnapshot } from "@/lib/orders/queries";
 import { SOURCE_LABELS } from "@/lib/orders/constants";
 import { formatPKR } from "@/lib/money";
-import { createClient } from "@/lib/supabase/client";
+import { useLiveRefresh, type RealtimeState } from "@/lib/realtime/use-live-refresh";
 import { minutesSince } from "@/lib/time";
 import { audioReady, playChime, setSoundPreference, soundPreference, unlockAudio } from "./alert-sound";
 
-export type RealtimeState = "connecting" | "live" | "polling";
+export type { RealtimeState };
 
 type LiveContext = {
   snapshot: LiveSnapshot;
@@ -51,7 +50,6 @@ export function useOrdersLiveOptional() {
   return use(Ctx);
 }
 
-const POLL_MS = 20_000;
 const URGENT_REPEAT_MS = 30_000;
 const TITLE_PREFIX = /^\(\d+\) New orders? · /;
 
@@ -75,9 +73,7 @@ export function OrdersLiveProvider({
 }) {
   const router = useRouter();
   const { toast } = useToast();
-  const online = useOnline();
   const [snapshot, setSnapshot] = useState(initial);
-  const [realtime, setRealtime] = useState<RealtimeState>("connecting");
   const [highlighted, setHighlighted] = useState<Set<string>>(new Set());
   const [now, setNow] = useState(() => Date.now());
   const [soundOn, setSoundOn] = useState(false);
@@ -85,7 +81,6 @@ export function OrdersLiveProvider({
 
   const known = useRef(new Set(initial.orders.filter((o) => o.status === "awaiting_acceptance").map((o) => o.id)));
   const inFlight = useRef<Promise<void> | null>(null);
-  const debounce = useRef<ReturnType<typeof setTimeout> | null>(null);
   const soundOnRef = useRef(false);
 
   // Server data changes (branch switch, navigation) replace the snapshot.
@@ -137,65 +132,9 @@ export function OrdersLiveProvider({
     return run;
   }, [announce]);
 
-  const scheduleRefresh = useCallback(() => {
-    if (debounce.current) clearTimeout(debounce.current);
-    debounce.current = setTimeout(() => void refresh(), 350);
-  }, [refresh]);
-
-  // Realtime: any change to orders in scope → refetch (RLS applies to payloads).
-  const scopeKey = branchIds.join(",");
-  useEffect(() => {
-    const supabase = createClient();
-    const filter = branchIds.length === 1 ? `branch_id=eq.${branchIds[0]}` : `restaurant_id=eq.${restaurantId}`;
-    let channel: ReturnType<typeof supabase.channel> | null = null;
-    let cancelled = false;
-
-    (async () => {
-      // The browser client loads the session from cookies asynchronously.
-      // Realtime must join WITH the user's token, or RLS hides every row.
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-      if (!data.session) {
-        setRealtime("polling");
-        return;
-      }
-      await supabase.realtime.setAuth(data.session.access_token);
-      if (cancelled) return;
-      channel = supabase
-        .channel(`orders-live:${filter}`)
-        .on("postgres_changes", { event: "*", schema: "public", table: "orders", filter }, scheduleRefresh)
-        .subscribe((status) => {
-          if (status === "SUBSCRIBED") {
-            setRealtime("live");
-            scheduleRefresh(); // catch up on anything missed while disconnected
-          } else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
-            setRealtime("polling");
-          }
-        });
-    })();
-
-    return () => {
-      cancelled = true;
-      if (channel) void supabase.removeChannel(channel);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- scopeKey stands in for branchIds
-  }, [restaurantId, scopeKey, scheduleRefresh]);
-
-  // Polling: every 20s while realtime is down; a slow 60s safety net while it's up.
-  useEffect(() => {
-    const id = setInterval(() => void refresh(), realtime === "live" ? 60_000 : POLL_MS);
-    return () => clearInterval(id);
-  }, [realtime, refresh]);
-
-  // Back online / tab visible again → catch up.
-  useEffect(() => {
-    if (online) scheduleRefresh();
-  }, [online, scheduleRefresh]);
-  useEffect(() => {
-    const onVisible = () => document.visibilityState === "visible" && scheduleRefresh();
-    document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
-  }, [scheduleRefresh]);
+  // Realtime + polling fallback + catch-up (shared with the kitchen screen).
+  const filter = branchIds.length === 1 ? `branch_id=eq.${branchIds[0]}` : `restaurant_id=eq.${restaurantId}`;
+  const { realtime, online } = useLiveRefresh({ table: "orders", filter, refresh });
 
   // Clock for "x min ago", urgent and late.
   useEffect(() => {
