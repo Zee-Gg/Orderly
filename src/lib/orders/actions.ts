@@ -23,6 +23,8 @@ import {
   type PreviewResult,
   type Scope,
 } from "./engine";
+// Registers WhatsApp order status messages on emitOrderEvent (runs in after()).
+import "./notifications";
 import {
   getLiveSnapshot,
   getOrderDetail,
