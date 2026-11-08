@@ -77,6 +77,12 @@ Users: restaurant owner, manager, staff (cashier/order taker), kitchen, rider, a
 - Realtime for any screen: `useLiveRefresh()` in `src/lib/realtime/use-live-refresh.ts` (token-authenticated join, polling fallback, catch-up). `useWakeLock()` keeps tablets awake.
 - Cancelled/CHANGED acknowledgements and the kitchen theme are per device (localStorage).
 
+## Printing (Phase 5B) — browser printing only
+- `/print/kot/[id]`, `/print/bill/[id]`, `/print/test` render HTML receipts (`src/components/print/receipts.tsx`, black and white, `@page` sized to 80mm/58mm) and call `window.print()`. `?preview=1` = show only; `?width=58|80` overrides the restaurant setting.
+- KOT data comes from the kitchen-safe view (no prices/phone/address) → kitchen can print it (`orders.print_kot`). Bills are front of house only (`orders.print_bill`).
+- The "printed" timeline entry is written by `recordPrintAction` AFTER the print dialog opens — never on page load (prefetches).
+- Settings: `restaurants.receipt_paper_width`, `bill_header`, `bill_footer` (`/settings/printing`). No auto-print, print queue or ESC/POS — don't add without asking.
+
 ## Tests
 - `npm test` (vitest, pure logic) · `npm run test:rls` (database security + engine against the real DB) · `npm run test:e2e` (Playwright, uses installed Chrome; needs `npm run build` first) · `npm run test:all` runs all three.
 
