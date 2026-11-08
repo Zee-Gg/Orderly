@@ -20,7 +20,9 @@ export type AuditAction =
   | "modifier_group.archived"
   | "modifier_option.price_changed"
   | "customer.blocked"
-  | "customer.unblocked";
+  | "customer.unblocked"
+  | "whatsapp.connected"
+  | "whatsapp.disconnected";
 // Written inside the database: "restaurant.created", "menu_item.stock_changed",
 // "menu.bulk_price_update", "order.cancelled", "order.edited",
 // "order.blocked_customer_override" (written by the order engine).
