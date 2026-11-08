@@ -1298,6 +1298,213 @@ export type Database = {
         }
         Relationships: []
       }
+      whatsapp_accounts: {
+        Row: {
+          access_token_encrypted: string
+          branch_id: string | null
+          connected_at: string
+          created_at: string
+          display_phone_number: string
+          id: string
+          is_active: boolean
+          phone_number_id: string
+          restaurant_id: string
+          updated_at: string
+          waba_id: string
+        }
+        Insert: {
+          access_token_encrypted: string
+          branch_id?: string | null
+          connected_at?: string
+          created_at?: string
+          display_phone_number: string
+          id?: string
+          is_active?: boolean
+          phone_number_id: string
+          restaurant_id: string
+          updated_at?: string
+          waba_id: string
+        }
+        Update: {
+          access_token_encrypted?: string
+          branch_id?: string | null
+          connected_at?: string
+          created_at?: string
+          display_phone_number?: string
+          id?: string
+          is_active?: boolean
+          phone_number_id?: string
+          restaurant_id?: string
+          updated_at?: string
+          waba_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_accounts_branch_id_restaurant_id_fkey"
+            columns: ["branch_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_accounts_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: true
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_conversations: {
+        Row: {
+          bot_enabled: boolean
+          created_at: string
+          customer_id: string | null
+          id: string
+          last_auto_reply_at: string | null
+          last_customer_message_at: string | null
+          last_message_at: string | null
+          last_message_preview: string | null
+          restaurant_id: string
+          status: Database["public"]["Enums"]["wa_conversation_status"]
+          updated_at: string
+          wa_id: string
+        }
+        Insert: {
+          bot_enabled?: boolean
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          last_auto_reply_at?: string | null
+          last_customer_message_at?: string | null
+          last_message_at?: string | null
+          last_message_preview?: string | null
+          restaurant_id: string
+          status?: Database["public"]["Enums"]["wa_conversation_status"]
+          updated_at?: string
+          wa_id: string
+        }
+        Update: {
+          bot_enabled?: boolean
+          created_at?: string
+          customer_id?: string | null
+          id?: string
+          last_auto_reply_at?: string | null
+          last_customer_message_at?: string | null
+          last_message_at?: string | null
+          last_message_preview?: string | null
+          restaurant_id?: string
+          status?: Database["public"]["Enums"]["wa_conversation_status"]
+          updated_at?: string
+          wa_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_conversations_customer_id_restaurant_id_fkey"
+            columns: ["customer_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_conversations_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_messages: {
+        Row: {
+          body: string | null
+          conversation_id: string
+          created_at: string
+          direction: Database["public"]["Enums"]["wa_direction"]
+          error: string | null
+          id: string
+          media_id: string | null
+          media_url: string | null
+          raw: Json | null
+          restaurant_id: string
+          status: Database["public"]["Enums"]["wa_message_status"]
+          type: Database["public"]["Enums"]["wa_message_type"]
+          updated_at: string
+          wa_message_id: string | null
+        }
+        Insert: {
+          body?: string | null
+          conversation_id: string
+          created_at?: string
+          direction: Database["public"]["Enums"]["wa_direction"]
+          error?: string | null
+          id?: string
+          media_id?: string | null
+          media_url?: string | null
+          raw?: Json | null
+          restaurant_id: string
+          status: Database["public"]["Enums"]["wa_message_status"]
+          type?: Database["public"]["Enums"]["wa_message_type"]
+          updated_at?: string
+          wa_message_id?: string | null
+        }
+        Update: {
+          body?: string | null
+          conversation_id?: string
+          created_at?: string
+          direction?: Database["public"]["Enums"]["wa_direction"]
+          error?: string | null
+          id?: string
+          media_id?: string | null
+          media_url?: string | null
+          raw?: Json | null
+          restaurant_id?: string
+          status?: Database["public"]["Enums"]["wa_message_status"]
+          type?: Database["public"]["Enums"]["wa_message_type"]
+          updated_at?: string
+          wa_message_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "whatsapp_messages_conversation_id_restaurant_id_fkey"
+            columns: ["conversation_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_conversations"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      whatsapp_webhook_events: {
+        Row: {
+          error: string | null
+          id: number
+          processed_at: string | null
+          raw: Json
+          received_at: string
+        }
+        Insert: {
+          error?: string | null
+          id?: never
+          processed_at?: string | null
+          raw: Json
+          received_at?: string
+        }
+        Update: {
+          error?: string | null
+          id?: never
+          processed_at?: string | null
+          raw?: Json
+          received_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       kitchen_orders: {
@@ -1472,6 +1679,31 @@ export type Database = {
         }
         Returns: Json
       }
+      whatsapp_claim_auto_reply: {
+        Args: { p_conversation_id: string; p_cooldown?: string }
+        Returns: boolean
+      }
+      whatsapp_record_inbound: {
+        Args: {
+          p_body: string
+          p_media_id: string
+          p_phone: string
+          p_profile_name: string
+          p_raw: Json
+          p_restaurant_id: string
+          p_sent_at: string
+          p_type: Database["public"]["Enums"]["wa_message_type"]
+          p_wa_id: string
+          p_wa_message_id: string
+        }
+        Returns: {
+          bot_enabled: boolean
+          conversation_id: string
+          customer_id: string
+          duplicate: boolean
+          message_id: string
+        }[]
+      }
     }
     Enums: {
       actor_type: "staff" | "customer" | "bot" | "system"
@@ -1511,6 +1743,24 @@ export type Database = {
         | "refunded"
         | "partially_refunded"
       restaurant_status: "trial" | "active" | "suspended"
+      wa_conversation_status: "open" | "resolved"
+      wa_direction: "inbound" | "outbound"
+      wa_message_status:
+        | "received"
+        | "sent"
+        | "delivered"
+        | "read"
+        | "failed"
+        | "skipped"
+      wa_message_type:
+        | "text"
+        | "image"
+        | "audio"
+        | "document"
+        | "location"
+        | "interactive"
+        | "button"
+        | "unknown"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -1682,6 +1932,26 @@ export const Constants = {
         "partially_refunded",
       ],
       restaurant_status: ["trial", "active", "suspended"],
+      wa_conversation_status: ["open", "resolved"],
+      wa_direction: ["inbound", "outbound"],
+      wa_message_status: [
+        "received",
+        "sent",
+        "delivered",
+        "read",
+        "failed",
+        "skipped",
+      ],
+      wa_message_type: [
+        "text",
+        "image",
+        "audio",
+        "document",
+        "location",
+        "interactive",
+        "button",
+        "unknown",
+      ],
     },
   },
 } as const
