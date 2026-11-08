@@ -1,45 +1,32 @@
 import type { Metadata } from "next";
-import Link from "next/link";
 import { Suspense } from "react";
-import { ArrowLeft, Flame } from "lucide-react";
-import { buttonVariants } from "@/components/ui/button";
-import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonList } from "@/components/ui/skeleton";
-import { SimplePage } from "@/components/shell/simple-page";
 import { can } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/session";
+import { getKitchenSnapshot } from "@/lib/kitchen/queries";
+import { DEFAULT_TIMEZONE } from "@/lib/time";
+import { KitchenScreen } from "./kitchen-screen";
 
 export const metadata: Metadata = { title: "Kitchen" };
 
-/** Full-screen kitchen display (tablet). Placeholder for a later phase. */
+/** Full-screen kitchen display for a tablet. */
 async function Kitchen() {
   const ctx = await requirePermission("kitchen.view", { onDenied: "redirect" });
+  const snapshot = await getKitchenSnapshot(ctx);
   return (
-    <SimplePage
-      title="Kitchen"
-      subtitle={`${ctx.restaurant.name}${ctx.currentBranch ? ` · ${ctx.currentBranch.name}` : ""}`}
-      actions={
-        can(ctx.role, "orders.view") ? (
-          <Link href="/orders" className={buttonVariants({ variant: "secondary" })}>
-            <ArrowLeft aria-hidden />
-            Orders
-          </Link>
-        ) : null
-      }
-    >
-      <EmptyState
-        icon={<Flame />}
-        title="No orders to cook"
-        description="Accepted orders will appear here in big cards for the cooks, with one tap to mark them ready."
-        className="flex-1 justify-center"
-      />
-    </SimplePage>
+    <KitchenScreen
+      initial={snapshot}
+      restaurantId={ctx.restaurant.id}
+      branchName={ctx.currentBranch?.name ?? (ctx.branches.length === 1 ? ctx.branches[0].name : "All branches")}
+      timezone={ctx.restaurant.timezone || DEFAULT_TIMEZONE}
+      canOpenOrders={can(ctx.role, "orders.view")}
+    />
   );
 }
 
 export default function KitchenPage() {
   return (
-    <Suspense fallback={<div className="p-4"><SkeletonList /></div>}>
+    <Suspense fallback={<div className="min-h-dvh bg-stone-950 p-6"><SkeletonList /></div>}>
       <Kitchen />
     </Suspense>
   );
