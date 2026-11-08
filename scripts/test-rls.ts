@@ -9,6 +9,7 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
 import { createOrder, transitionOrder, type Actor } from "../src/lib/orders/engine";
+import { encryptToken } from "../src/lib/whatsapp/crypto";
 
 process.loadEnvFile(".env.local");
 
@@ -374,6 +375,7 @@ async function main() {
 
   await orderChecks(ownerA, ownerB, kitchenA, restA, restB);
   await menuChecks(ownerA, ownerB, kitchenA, restA, restB);
+  await whatsappChecks(ownerA, ownerB, kitchenA, restA);
 }
 
 async function orderChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest, restB: Rest) {
@@ -849,9 +851,142 @@ async function menuChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser
   );
 }
 
+async function whatsappChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest) {
+  section("WhatsApp: setup");
+  const phoneNumberId = `9${Date.now()}`;
+  const token = `EAAG-test-token-${RUN}`;
+  const acc = await admin.from("whatsapp_accounts").insert({
+    restaurant_id: restA.id,
+    branch_id: restA.branchId,
+    phone_number_id: phoneNumberId,
+    waba_id: "1234567890",
+    display_phone_number: "+92 300 0000000",
+    access_token_encrypted: encryptToken(token),
+  });
+  check("Server can connect a WhatsApp number to restaurant A", acc.error === null, JSON.stringify(acc.error));
+
+  const inbound = (waMessageId: string) =>
+    admin
+      .rpc("whatsapp_record_inbound", {
+        p_restaurant_id: restA.id,
+        p_wa_id: "923009990001",
+        p_phone: "+923009990001",
+        p_profile_name: "WA Customer",
+        p_wa_message_id: waMessageId,
+        p_type: "text",
+        p_body: "Assalam o alaikum, menu?",
+        p_media_id: null as unknown as string,
+        p_raw: { test: true },
+        p_sent_at: new Date().toISOString(),
+      })
+      .single();
+  const first = await inbound(`wamid.rls-${RUN}`);
+  check(
+    "Inbound message is saved with customer + conversation",
+    !first.error && first.data?.duplicate === false && !!first.data.customer_id,
+    JSON.stringify(first),
+  );
+  const again = await inbound(`wamid.rls-${RUN}`);
+  const { count } = await admin
+    .from("whatsapp_messages")
+    .select("id", { count: "exact", head: true })
+    .eq("wa_message_id", `wamid.rls-${RUN}`);
+  check("Same wa_message_id twice → duplicate, saved once", again.data?.duplicate === true && count === 1, JSON.stringify({ again, count }));
+  const conversationId = first.data!.conversation_id;
+  const claim1 = await admin.rpc("whatsapp_claim_auto_reply", { p_conversation_id: conversationId });
+  const claim2 = await admin.rpc("whatsapp_claim_auto_reply", { p_conversation_id: conversationId });
+  check("Auto-reply claim succeeds once per 6 hours", claim1.data === true && claim2.data === false, JSON.stringify({ claim1, claim2 }));
+  await admin.from("whatsapp_webhook_events").insert({ raw: { rls: RUN } });
+
+  section("WhatsApp: tenant isolation and token secrecy");
+  const ownStatus = await ownerA.client
+    .from("whatsapp_accounts")
+    .select("display_phone_number, is_active")
+    .eq("restaurant_id", restA.id);
+  check("Owner A can see their connection status and number", !ownStatus.error && ownStatus.data.length === 1, JSON.stringify(ownStatus));
+  const tokenRead = await ownerA.client.from("whatsapp_accounts").select("access_token_encrypted");
+  check("Owner A can NEVER read the access token column", tokenRead.error !== null, JSON.stringify(tokenRead));
+  const starRead = await ownerA.client.from("whatsapp_accounts").select("*");
+  check("select * on whatsapp_accounts is refused (token not granted)", starRead.error !== null, JSON.stringify(starRead.data));
+  const ownConv = await ownerA.client.from("whatsapp_conversations").select("id").eq("id", conversationId);
+  const ownMsg = await ownerA.client.from("whatsapp_messages").select("id, body").eq("conversation_id", conversationId);
+  check(
+    "Owner A can read their conversations and messages",
+    ownConv.data?.length === 1 && ownMsg.data?.length === 1,
+    JSON.stringify({ ownConv, ownMsg }),
+  );
+
+  const bAcc = await ownerB.client.from("whatsapp_accounts").select("id, display_phone_number");
+  const bConv = await ownerB.client.from("whatsapp_conversations").select("id");
+  const bMsg = await ownerB.client.from("whatsapp_messages").select("id");
+  check("Restaurant B cannot see the WhatsApp connection of A", !bAcc.error && bAcc.data.length === 0, JSON.stringify(bAcc));
+  check("Restaurant B cannot see conversations of A", !bConv.error && bConv.data.length === 0, JSON.stringify(bConv));
+  check("Restaurant B cannot see messages of A", !bMsg.error && bMsg.data.length === 0, JSON.stringify(bMsg));
+
+  const kConv = await kitchenA.client.from("whatsapp_conversations").select("id");
+  const kMsg = await kitchenA.client.from("whatsapp_messages").select("id");
+  check(
+    "Kitchen cannot read customer chats",
+    (kConv.data?.length ?? 0) === 0 && (kMsg.data?.length ?? 0) === 0,
+    JSON.stringify({ kConv, kMsg }),
+  );
+
+  const events = await ownerA.client.from("whatsapp_webhook_events").select("id");
+  check("Owners cannot read raw webhook events (super admin only)", !events.error && events.data.length === 0, JSON.stringify(events));
+
+  section("WhatsApp: nobody writes from the browser");
+  const insMsg = await ownerA.client.from("whatsapp_messages").insert({
+    restaurant_id: restA.id,
+    conversation_id: conversationId,
+    direction: "outbound",
+    body: "fake",
+    status: "sent",
+  });
+  check("Owner cannot insert messages", insMsg.error !== null, JSON.stringify(insMsg));
+  const updConv = await ownerA.client
+    .from("whatsapp_conversations")
+    .update({ bot_enabled: false })
+    .eq("id", conversationId)
+    .select("id");
+  check("Owner cannot change conversations", updConv.error !== null || updConv.data?.length === 0, JSON.stringify(updConv));
+  const updAcc = await ownerA.client
+    .from("whatsapp_accounts")
+    .update({ phone_number_id: "1111111" })
+    .eq("restaurant_id", restA.id)
+    .select("id");
+  check("Owner cannot edit the WhatsApp connection", updAcc.error !== null || updAcc.data?.length === 0, JSON.stringify(updAcc));
+  const insAcc = await ownerB.client.from("whatsapp_accounts").insert({
+    restaurant_id: restA.id,
+    phone_number_id: "22222222",
+    waba_id: "33333333",
+    display_phone_number: "+92 300 1111111",
+    access_token_encrypted: "x",
+  });
+  check("Owners cannot create WhatsApp connections", insAcc.error !== null, JSON.stringify(insAcc));
+  const rpc = await ownerA.client.rpc("whatsapp_record_inbound", {
+    p_restaurant_id: restA.id,
+    p_wa_id: "923009990002",
+    p_phone: "+923009990002",
+    p_profile_name: "x",
+    p_wa_message_id: `wamid.forged-${RUN}`,
+    p_type: "text",
+    p_body: "forged",
+    p_media_id: "",
+    p_raw: {},
+    p_sent_at: new Date().toISOString(),
+  });
+  check("Users cannot call whatsapp_record_inbound", rpc.error !== null, JSON.stringify(rpc));
+  const claim = await ownerA.client.rpc("whatsapp_claim_auto_reply", { p_conversation_id: conversationId });
+  check("Users cannot call whatsapp_claim_auto_reply", claim.error !== null, JSON.stringify(claim));
+  const anon = createClient<Database>(url!, publishableKey!, noSession);
+  const anonMsg = await anon.from("whatsapp_messages").select("id");
+  check("Anonymous users cannot read messages", anonMsg.error !== null || anonMsg.data.length === 0, JSON.stringify(anonMsg));
+}
+
 async function cleanup() {
   section("Cleanup");
   if (uploadedPaths.length) await admin.storage.from(LOGO_BUCKET).remove(uploadedPaths);
+  await admin.from("whatsapp_webhook_events").delete().eq("raw->>rls", RUN);
   if (createdRestaurantIds.length) {
     const { error } = await admin.from("restaurants").delete().in("id", createdRestaurantIds);
     if (error) console.log(`  ! could not delete restaurants: ${error.message}`);
