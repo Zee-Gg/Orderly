@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMemoryStore } from "./memory-store";
 import { createSender, isInside24hWindow } from "./send";
+import type { FetchLike } from "./graph";
 import type { InboundMessage } from "./payload";
 
 const NOW = Date.parse("2026-11-08T12:00:00Z");
@@ -104,5 +105,64 @@ describe("sendText", () => {
     const res = await sendText("rest-1", "923001234567", "Hi");
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(res).toMatchObject({ ok: false, status: "failed", error: expect.stringContaining("Invalid OAuth") });
+  });
+});
+
+describe("send helpers (Phase 7)", () => {
+  async function sender(hoursAgo: number) {
+    const mem = createMemoryStore({ accounts: [account] });
+    await mem.store.recordInbound("rest-1", inbound(new Date(NOW - hoursAgo * HOUR).toISOString()), "+923001234567");
+    let n = 0;
+    const fetch = vi.fn<FetchLike>(async () => graphOk(`wamid.${++n}`));
+    return { mem, fetch, s: createSender({ store: mem.store, fetch, now: () => NOW, decrypt: () => "token" }) };
+  }
+  const sentBody = (fetch: { mock: { calls: [string, RequestInit?][] } }) =>
+    JSON.parse(fetch.mock.calls.at(-1)![1]!.body as string);
+  const to = ["rest-1", "923001234567"] as const;
+
+  it("builds the right Graph API body for each helper", async () => {
+    const { s, fetch, mem } = await sender(1);
+    await s.sendImage(...to, "https://example.com/menu.jpg", "Menu");
+    expect(sentBody(fetch)).toMatchObject({ to: "923001234567", type: "image", image: { link: "https://example.com/menu.jpg", caption: "Menu" } });
+    expect(mem.messages.at(-1)).toMatchObject({ type: "image", body: "Menu", mediaUrl: "https://example.com/menu.jpg" });
+
+    await s.sendDocument(...to, "https://example.com/bill.pdf", "bill.pdf");
+    expect(sentBody(fetch)).toMatchObject({ type: "document", document: { link: "https://example.com/bill.pdf", filename: "bill.pdf" } });
+
+    await s.sendLocation(...to, 24.8138, 67.0299, "Clifton branch", "Block 5, Clifton");
+    expect(sentBody(fetch)).toMatchObject({ type: "location", location: { latitude: 24.8138, longitude: 67.0299, name: "Clifton branch" } });
+
+    await s.sendInteractiveButtons(...to, "Confirm order?", [{ id: "yes", title: "Haan" }, { id: "no", title: "Nahi" }]);
+    expect(sentBody(fetch)).toMatchObject({
+      type: "interactive",
+      interactive: { type: "button", body: { text: "Confirm order?" }, action: { buttons: [{ type: "reply", reply: { id: "yes", title: "Haan" } }, {}] } },
+    });
+
+    await s.sendInteractiveList(...to, "Choose a size", "Sizes", [{ title: "Pizza", rows: [{ id: "s", title: "Small" }, { id: "l", title: "Large" }] }]);
+    expect(sentBody(fetch)).toMatchObject({ type: "interactive", interactive: { type: "list", action: { button: "Sizes" } } });
+    expect(mem.messages.at(-1)).toMatchObject({ type: "interactive", status: "sent" });
+    expect(fetch).toHaveBeenCalledTimes(5);
+  });
+
+  it("every helper skips outside the 24h window without calling WhatsApp", async () => {
+    const { s, fetch, mem } = await sender(25);
+    const results = await Promise.all([
+      s.sendImage(...to, "https://example.com/a.jpg"),
+      s.sendDocument(...to, "https://example.com/a.pdf", "a.pdf"),
+      s.sendLocation(...to, 24.8, 67.0),
+      s.sendInteractiveButtons(...to, "Hi", [{ id: "a", title: "A" }]),
+      s.sendInteractiveList(...to, "Hi", "Open", [{ rows: [{ id: "a", title: "A" }] }]),
+    ]);
+    expect(results.every((r) => r.status === "skipped")).toBe(true);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(mem.messages.filter((m) => m.status === "skipped")).toHaveLength(5);
+  });
+
+  it("rejects invalid messages before sending (Meta limits)", async () => {
+    const { s, fetch } = await sender(1);
+    const four = [1, 2, 3, 4].map((i) => ({ id: `${i}`, title: `B${i}` }));
+    expect(await s.sendInteractiveButtons(...to, "Pick", four)).toMatchObject({ ok: false, status: "failed" });
+    expect(await s.sendImage(...to, "http://insecure.example.com/a.jpg")).toMatchObject({ ok: false });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });
