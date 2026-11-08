@@ -604,6 +604,49 @@ async function orderChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUse
     cancel.ok && cust2?.cancelled_count === 1 && (cancelAudit?.length ?? 0) === 1,
     JSON.stringify([cancel, cust2, cancelAudit]),
   );
+
+  section("Kitchen screen: only START and READY");
+  const kitchenDeps = { admin, pricing: kitchenA.client };
+  const kitchenActor: Actor = { type: "staff", userId: kitchenA.id, role: "kitchen" };
+  const ticket = await createOrder(deps, scopeA, order(restA.branchId, "kitchen", { orderType: "pickup", address: undefined, deliveryFee: 0 }), ownerActor, {
+    initialStatus: "awaiting_acceptance",
+  });
+  const ticketId = ticket.ok ? ticket.data.id : "";
+  const kAccept = await transitionOrder(kitchenDeps, scopeA, { orderId: ticketId, expectedVersion: 1, path: ["accepted"] }, kitchenActor);
+  check("Kitchen can't accept new orders", !kAccept.ok && kAccept.code === "NOT_ALLOWED", JSON.stringify(kAccept));
+  await transitionOrder(deps, scopeA, { orderId: ticketId, expectedVersion: 1, path: ["accepted"] }, ownerActor);
+  const kStart = await transitionOrder(kitchenDeps, scopeA, { orderId: ticketId, expectedVersion: 2, path: ["preparing"] }, kitchenActor);
+  check("Kitchen can START (accepted → preparing)", kStart.ok, JSON.stringify(kStart));
+  const kReady = await transitionOrder(kitchenDeps, scopeA, { orderId: ticketId, expectedVersion: 3, path: ["ready"] }, kitchenActor);
+  check("Kitchen can mark READY (preparing → ready)", kReady.ok, JSON.stringify(kReady));
+  const kComplete = await transitionOrder(kitchenDeps, scopeA, { orderId: ticketId, expectedVersion: 4, path: ["completed"] }, kitchenActor);
+  check("Kitchen can't complete or hand over orders", !kComplete.ok && kComplete.code === "NOT_ALLOWED", JSON.stringify(kComplete));
+  // The database enforces the same rule even if the app check were skipped.
+  const kDirect = await admin.rpc("transition_order_status", {
+    p_restaurant_id: restA.id,
+    p_order_id: ticketId,
+    p_expected_version: 4,
+    p_path: ["completed"],
+    p_actor_type: "staff",
+    p_actor_user_id: kitchenA.id,
+  });
+  check("Database refuses kitchen moves outside START/READY", kDirect.error?.message === "ROLE_NOT_ALLOWED", JSON.stringify(kDirect));
+
+  const kRow = await kitchenA.client.from("kitchen_orders").select("*").eq("id", ticketId).single();
+  const kRowKeys = Object.keys(kRow.data ?? {});
+  check(
+    "Kitchen ticket data has no phone, address or money",
+    !kRow.error &&
+      kRowKeys.includes("cancelled_at") &&
+      !kRowKeys.some((k) => ["customer_phone", "address_text", "area", "landmark", "latitude", "longitude", "total", "subtotal"].includes(k)),
+    JSON.stringify(kRowKeys),
+  );
+  const kEvents = await kitchenA.client.from("order_events").select("data").eq("order_id", ticketId);
+  check(
+    "Order events the kitchen reads contain no phone number",
+    !kEvents.error && (kEvents.data?.length ?? 0) > 0 && !JSON.stringify(kEvents.data).includes("7654321"),
+    JSON.stringify(kEvents.data),
+  );
 }
 
 type Rest = { id: string; branchId: string; slug: string };
