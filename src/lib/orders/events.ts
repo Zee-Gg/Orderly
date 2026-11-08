@@ -18,15 +18,44 @@ export type EmittedEvent = {
   data?: Record<string, unknown>;
 };
 
+export type OrderEventHandler = (order: EmittedOrder, event: EmittedEvent) => Promise<void>;
+/** Runs a task after the response (Next.js `after()` on the server). */
+export type BackgroundRunner = (task: () => Promise<void>) => void;
+
+let handler: OrderEventHandler | null = null;
+let runInBackground: BackgroundRunner = (task) => void task();
+
+/**
+ * Server code registers the notification handler once (see
+ * src/lib/orders/notifications.ts). Scripts and tests that don't register
+ * one simply send nothing.
+ */
+export function setOrderEventHandler(next: OrderEventHandler | null, runner?: BackgroundRunner) {
+  handler = next;
+  if (runner) runInBackground = runner;
+}
+
 /**
  * THE single hook called after every order change (create, status, edit,
  * hold, payment). The change is already committed when this runs.
  *
- * Phase 6 plugs WhatsApp customer notifications in HERE ("Your order is
- * ready!"), and nowhere else. Keep it non-blocking: never throw, and never
- * make the staff action wait on a slow external call (queue it instead).
+ * WhatsApp customer messages (Phase 6B) plug in HERE, and nowhere else.
+ * Non-blocking: returns at once, the handler runs in the background, and
+ * nothing it does can throw into (or slow down) the staff action.
  */
 export async function emitOrderEvent(order: EmittedOrder, event: EmittedEvent): Promise<void> {
-  void order;
-  void event;
+  const current = handler;
+  if (!current) return;
+  const task = async () => {
+    try {
+      await current(order, event);
+    } catch (err) {
+      console.error("[orders] event handler failed", order.id, event.kind, err instanceof Error ? err.message : err);
+    }
+  };
+  try {
+    runInBackground(task);
+  } catch (err) {
+    console.error("[orders] could not schedule event handler", err instanceof Error ? err.message : err);
+  }
 }
