@@ -1,0 +1,103 @@
+import { STATUS_FROM, type AccountRecord, type GreetingContext, type WhatsAppStore } from "./store";
+import type { WaMessageStatus } from "./payload";
+
+/**
+ * In-memory WhatsAppStore for unit tests. Mirrors the database rules that
+ * matter for the logic: wa_message_id is unique, statuses only move forward,
+ * the auto-reply claim has a cooldown.
+ */
+export type MemoryMessage = {
+  id: string;
+  restaurantId: string;
+  conversationId: string;
+  direction: "inbound" | "outbound";
+  waMessageId: string | null;
+  body: string | null;
+  status: WaMessageStatus;
+  error: string | null;
+};
+
+export function createMemoryStore(seed: { accounts?: AccountRecord[]; greeting?: GreetingContext; now?: () => number } = {}) {
+  const now = seed.now ?? Date.now;
+  let seq = 0;
+  const id = (p: string) => `${p}-${++seq}`;
+  const accounts = [...(seed.accounts ?? [])];
+  const conversations: {
+    id: string;
+    restaurantId: string;
+    waId: string;
+    customerId: string | null;
+    lastCustomerMessageAt: string | null;
+    lastAutoReplyAt: number | null;
+    botEnabled: boolean;
+  }[] = [];
+  const customers: { id: string; restaurantId: string; phone: string; name: string | null }[] = [];
+  const messages: MemoryMessage[] = [];
+
+  const store: WhatsAppStore = {
+    async findAccountByPhoneNumberId(phoneNumberId) {
+      return accounts.find((a) => a.phoneNumberId === phoneNumberId) ?? null;
+    },
+    async findAccountByRestaurant(restaurantId) {
+      return accounts.find((a) => a.restaurantId === restaurantId) ?? null;
+    },
+    async findConversation(restaurantId, waId) {
+      const c = conversations.find((x) => x.restaurantId === restaurantId && x.waId === waId);
+      return c ? { id: c.id, restaurantId, waId, lastCustomerMessageAt: c.lastCustomerMessageAt, botEnabled: c.botEnabled } : null;
+    },
+    async recordInbound(restaurantId, m, phone) {
+      const existing = messages.find((x) => x.waMessageId === m.waMessageId);
+      if (existing) {
+        const c = conversations.find((x) => x.id === existing.conversationId)!;
+        return { conversationId: c.id, customerId: c.customerId, messageId: existing.id, duplicate: true, botEnabled: c.botEnabled };
+      }
+      let customer = phone ? customers.find((x) => x.restaurantId === restaurantId && x.phone === phone) : undefined;
+      if (phone && !customer) {
+        customer = { id: id("cust"), restaurantId, phone, name: m.profileName };
+        customers.push(customer);
+      } else if (customer && !customer.name) customer.name = m.profileName;
+      let c = conversations.find((x) => x.restaurantId === restaurantId && x.waId === m.waId);
+      if (!c) {
+        c = { id: id("conv"), restaurantId, waId: m.waId, customerId: customer?.id ?? null, lastCustomerMessageAt: null, lastAutoReplyAt: null, botEnabled: true };
+        conversations.push(c);
+      }
+      if (!c.lastCustomerMessageAt || m.sentAt > c.lastCustomerMessageAt) c.lastCustomerMessageAt = m.sentAt;
+      const msg: MemoryMessage = {
+        id: id("msg"), restaurantId, conversationId: c.id, direction: "inbound",
+        waMessageId: m.waMessageId, body: m.body, status: "received", error: null,
+      };
+      messages.push(msg);
+      return { conversationId: c.id, customerId: c.customerId, messageId: msg.id, duplicate: false, botEnabled: c.botEnabled };
+    },
+    async insertOutbound(row) {
+      if (row.waMessageId && messages.some((x) => x.waMessageId === row.waMessageId)) throw new Error("duplicate wa_message_id");
+      const msg: MemoryMessage = {
+        id: id("msg"), restaurantId: row.restaurantId, conversationId: row.conversationId, direction: "outbound",
+        waMessageId: row.waMessageId ?? null, body: row.body, status: row.status, error: row.error ?? null,
+      };
+      messages.push(msg);
+      return msg.id;
+    },
+    async applyStatus(restaurantId, update) {
+      const msg = messages.find(
+        (x) => x.restaurantId === restaurantId && x.waMessageId === update.waMessageId && x.direction === "outbound",
+      );
+      if (!msg || !STATUS_FROM[update.status].includes(msg.status)) return false;
+      msg.status = update.status;
+      if (update.error) msg.error = update.error;
+      return true;
+    },
+    async claimAutoReply(conversationId, cooldownHours) {
+      const c = conversations.find((x) => x.id === conversationId);
+      if (!c || !c.botEnabled) return false;
+      if (c.lastAutoReplyAt !== null && now() - c.lastAutoReplyAt < cooldownHours * 3600_000) return false;
+      c.lastAutoReplyAt = now();
+      return true;
+    },
+    async getGreetingContext() {
+      return seed.greeting ?? null;
+    },
+  };
+
+  return { store, accounts, conversations, customers, messages };
+}
