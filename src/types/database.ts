@@ -1240,6 +1240,8 @@ export type Database = {
       }
       restaurants: {
         Row: {
+          bill_footer: string | null
+          bill_header: string | null
           city: string | null
           created_at: string
           created_by: string | null
@@ -1248,6 +1250,7 @@ export type Database = {
           logo_url: string | null
           name: string
           phone: string | null
+          receipt_paper_width: string
           slug: string
           status: Database["public"]["Enums"]["restaurant_status"]
           timezone: string
@@ -1256,6 +1259,8 @@ export type Database = {
           whatsapp_number: string | null
         }
         Insert: {
+          bill_footer?: string | null
+          bill_header?: string | null
           city?: string | null
           created_at?: string
           created_by?: string | null
@@ -1264,6 +1269,7 @@ export type Database = {
           logo_url?: string | null
           name: string
           phone?: string | null
+          receipt_paper_width?: string
           slug: string
           status?: Database["public"]["Enums"]["restaurant_status"]
           timezone?: string
@@ -1272,6 +1278,8 @@ export type Database = {
           whatsapp_number?: string | null
         }
         Update: {
+          bill_footer?: string | null
+          bill_header?: string | null
           city?: string | null
           created_at?: string
           created_by?: string | null
@@ -1280,6 +1288,7 @@ export type Database = {
           logo_url?: string | null
           name?: string
           phone?: string | null
+          receipt_paper_width?: string
           slug?: string
           status?: Database["public"]["Enums"]["restaurant_status"]
           timezone?: string
