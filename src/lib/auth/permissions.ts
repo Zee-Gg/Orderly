@@ -41,6 +41,10 @@ export const PERMISSIONS = {
   /** Place an order for a blocked customer (with a reason). */
   "orders.override_block": MANAGEMENT,
   "orders.refund": ["owner"],
+  /** Kitchen slip (no prices, no phone/address). */
+  "orders.print_kot": ["owner", "manager", "staff", "kitchen"],
+  /** Customer bill (prices, phone, address). */
+  "orders.print_bill": FRONT_OF_HOUSE,
   /** Mark cash received / transfer verified. */
   "payments.record": FRONT_OF_HOUSE,
   "kitchen.view": ["owner", "manager", "staff", "kitchen"],
