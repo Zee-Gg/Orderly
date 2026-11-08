@@ -17,10 +17,13 @@ export default defineConfig({
     headless: true,
     trace: "retain-on-failure",
   },
+  // Fake WhatsApp Graph API (e2e/mock-graph.ts): no real messages are ever sent.
+  globalSetup: "./e2e/global-setup.ts",
   webServer: {
     command: "npm run start -- -p 3123",
     url: "http://localhost:3123/login",
     reuseExistingServer: true,
     timeout: 120_000,
+    env: { WHATSAPP_GRAPH_BASE_URL: "http://localhost:3999" },
   },
 });
