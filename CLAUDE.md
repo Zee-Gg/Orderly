@@ -71,6 +71,15 @@ Users: restaurant owner, manager, staff (cashier/order taker), kitchen, rider, a
 - Live dashboard: `OrdersLiveProvider` (dashboard layout) = realtime (joins with the user's token — required for RLS), 20s polling fallback, catch-up on reconnect, alerts/sound/title. Use `useOrdersLive()`; don't open more realtime channels for orders.
 - Test data: `npm run simulate:orders -- <slug> [--every 8] [--count 10]` creates orders through the real engine.
 
+## Kitchen screen (Phase 5A)
+- `/kitchen` reads ONLY `kitchen_orders` (view) + `order_items` + `order_events` via `src/lib/kitchen/queries.ts`. Kitchen users can't read `orders`, so the kitchen listens to realtime on `order_events` (every order change writes one).
+- START / READY use the normal `transitionOrderAction`; the state machine limits kitchen to accepted→preparing→ready.
+- Realtime for any screen: `useLiveRefresh()` in `src/lib/realtime/use-live-refresh.ts` (token-authenticated join, polling fallback, catch-up). `useWakeLock()` keeps tablets awake.
+- Cancelled/CHANGED acknowledgements and the kitchen theme are per device (localStorage).
+
+## Tests
+- `npm test` (vitest, pure logic) · `npm run test:rls` (database security + engine against the real DB) · `npm run test:e2e` (Playwright, uses installed Chrome; needs `npm run build` first) · `npm run test:all` runs all three.
+
 ## Soft delete
 - Never hard-delete menu items, sizes, extras, options, categories (or anything an order might reference). Set `archived_at`; the API has no DELETE grant on these tables. Archived rows are hidden everywhere except reports and past orders.
 
