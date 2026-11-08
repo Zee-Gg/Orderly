@@ -15,7 +15,7 @@ export function PrintControls({
   preview,
 }: {
   orderId: string | null;
-  kind: "kot" | "bill" | "test";
+  kind: "kot" | "bill" | "test" | "poster";
   preview: boolean;
 }) {
   const done = useRef(false);
@@ -23,7 +23,7 @@ export function PrintControls({
   async function print() {
     await document.fonts?.ready;
     window.print(); // blocks until the dialog closes in most browsers
-    if (orderId && kind !== "test") void recordPrintAction(orderId, kind);
+    if (orderId && (kind === "kot" || kind === "bill")) void recordPrintAction(orderId, kind);
   }
 
   useEffect(() => {
