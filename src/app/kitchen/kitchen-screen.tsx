@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Bike, Check, Clock, Flame, LogOut, Moon, PauseCircle, ShoppingBag, Sun, TriangleAlert, UtensilsCrossed, Volume2, VolumeX } from "lucide-react";
+import { ArrowLeft, Bike, Check, Clock, Flame, LogOut, Moon, PauseCircle, Printer, ShoppingBag, Sun, TriangleAlert, UtensilsCrossed, Volume2, VolumeX } from "lucide-react";
 import { audioReady, playChime, setSoundPreference, soundPreference, unlockAudio } from "@/components/orders/alert-sound";
 import { OfflineBanner } from "@/components/ui/offline-banner";
 import { useToast } from "@/components/ui/toast";
@@ -406,6 +406,13 @@ export function KitchenScreen({
                     ) : (
                       <p className={cn("text-center text-lg font-semibold", p.muted)}>Waiting for pickup</p>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => window.open(`/print/kot/${t.id}`, "_blank", "noopener")}
+                      className={cn("flex min-h-12 items-center justify-center gap-2 rounded-panel border-2 text-lg font-bold", p.pill)}
+                    >
+                      <Printer aria-hidden className="size-5" /> Print
+                    </button>
                     {!online ? <p className="text-center text-lg font-semibold text-red-500">Offline — buttons will work when the internet is back</p> : null}
                   </div>
                 </article>
