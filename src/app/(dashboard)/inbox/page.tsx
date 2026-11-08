@@ -1,25 +1,41 @@
 import type { Metadata } from "next";
-import { MessageCircle } from "lucide-react";
 import { Suspense } from "react";
-import { PermissionGate } from "@/components/auth/permission-gate";
-import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonList } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/shell/page-header";
+import { InboxView } from "@/components/inbox/inbox-view";
+import { requirePermission } from "@/lib/auth/session";
+import { listConversations, listMessages } from "@/lib/whatsapp/queries";
 
 export const metadata: Metadata = { title: "Inbox" };
 
-export default function InboxPage() {
+/**
+ * Temporary read-only inbox (Phase 6A). Replies and bot takeover come in
+ * Phase 10.
+ */
+async function Inbox({ searchParams }: { searchParams: Promise<{ c?: string }> }) {
+  const ctx = await requirePermission("inbox.access", { onDenied: "redirect" });
+  const { c } = await searchParams;
+  const conversations = await listConversations(ctx.restaurant.id);
+  const selected = c ? conversations.find((x) => x.id === c) ?? null : null;
+  const messages = selected ? await listMessages(ctx.restaurant.id, selected.id) : [];
   return (
-    <Suspense fallback={<SkeletonList />}>
-      <PermissionGate action="inbox.access">
-        <PageHeader title="Inbox" description="WhatsApp chats with your customers." />
-        <EmptyState
-          tone="brand"
-          icon={<MessageCircle />}
-          title="No chats yet"
-          description="WhatsApp conversations with customers will show here. You can take over from the bot any time."
-        />
-      </PermissionGate>
-    </Suspense>
+    <InboxView
+      restaurantId={ctx.restaurant.id}
+      timezone={ctx.restaurant.timezone}
+      conversations={conversations}
+      selected={selected}
+      messages={messages}
+    />
+  );
+}
+
+export default function InboxPage({ searchParams }: PageProps<"/inbox">) {
+  return (
+    <>
+      <PageHeader title="Inbox" description="WhatsApp chats with your customers." />
+      <Suspense fallback={<SkeletonList />}>
+        <Inbox searchParams={searchParams as Promise<{ c?: string }>} />
+      </Suspense>
+    </>
   );
 }
