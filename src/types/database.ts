@@ -1257,6 +1257,7 @@ export type Database = {
           trial_ends_at: string | null
           updated_at: string
           whatsapp_number: string | null
+          whatsapp_status_messages: Json
         }
         Insert: {
           bill_footer?: string | null
@@ -1276,6 +1277,7 @@ export type Database = {
           trial_ends_at?: string | null
           updated_at?: string
           whatsapp_number?: string | null
+          whatsapp_status_messages?: Json
         }
         Update: {
           bill_footer?: string | null
@@ -1295,6 +1297,7 @@ export type Database = {
           trial_ends_at?: string | null
           updated_at?: string
           whatsapp_number?: string | null
+          whatsapp_status_messages?: Json
         }
         Relationships: []
       }
@@ -1424,7 +1427,10 @@ export type Database = {
           error: string | null
           id: string
           media_id: string | null
+          media_mime_type: string | null
+          media_size: number | null
           media_url: string | null
+          order_id: string | null
           raw: Json | null
           restaurant_id: string
           status: Database["public"]["Enums"]["wa_message_status"]
@@ -1440,7 +1446,10 @@ export type Database = {
           error?: string | null
           id?: string
           media_id?: string | null
+          media_mime_type?: string | null
+          media_size?: number | null
           media_url?: string | null
+          order_id?: string | null
           raw?: Json | null
           restaurant_id: string
           status: Database["public"]["Enums"]["wa_message_status"]
@@ -1456,7 +1465,10 @@ export type Database = {
           error?: string | null
           id?: string
           media_id?: string | null
+          media_mime_type?: string | null
+          media_size?: number | null
           media_url?: string | null
+          order_id?: string | null
           raw?: Json | null
           restaurant_id?: string
           status?: Database["public"]["Enums"]["wa_message_status"]
@@ -1470,6 +1482,20 @@ export type Database = {
             columns: ["conversation_id", "restaurant_id"]
             isOneToOne: false
             referencedRelation: "whatsapp_conversations"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_order_fk"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "whatsapp_messages_order_fk"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
             referencedColumns: ["id", "restaurant_id"]
           },
           {
