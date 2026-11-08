@@ -64,7 +64,7 @@ Users: restaurant owner, manager, staff (cashier/order taker), kitchen, rider, a
 - State machine lives in `src/lib/orders/status.ts` AND in Postgres (`private.order_transition_allowed` + role checks in `transition_order_status`). Change both together. Late cancels (preparing/ready) are manager+; kitchen only does accepted→preparing→ready; held orders can only be cancelled.
 - Optimistic locking: every write passes `expectedVersion`. On `VERSION_CONFLICT` show "already updated by someone else" and refresh.
 - Idempotency: `createOrder` needs an `idempotencyKey` (one per order screen / per bot confirmation). Same key → same order.
-- `emitOrderEvent(order, event)` in `src/lib/orders/events.ts` is THE hook called after every order change. Phase 6 adds WhatsApp customer notifications there — and nowhere else. It must never throw or block.
+- `emitOrderEvent(order, event)` in `src/lib/orders/events.ts` is THE hook called after every order change. WhatsApp customer notifications plug in there (via `setOrderEventHandler`, registered in `src/lib/orders/notifications.ts`, run in `after()`) — and nowhere else. It must never throw or block.
 - Kitchen never sees customer phone/address: kitchen reads `kitchen_orders` (view) + `order_items`/`order_events`. Don't put PII in `order_events.data`.
 - "Today" = restaurant timezone (default Asia/Karachi): use `todayRange()` from `src/lib/time.ts`, never UTC dates.
 - Phones are stored E.164 via `normalizePhone()` (`src/lib/orders/phone.ts`); show with `formatPhone()`.
@@ -83,18 +83,24 @@ Users: restaurant owner, manager, staff (cashier/order taker), kitchen, rider, a
 - The "printed" timeline entry is written by `recordPrintAction` AFTER the print dialog opens — never on page load (prefetches).
 - Settings: `restaurants.receipt_paper_width`, `bill_header`, `bill_footer` (`/settings/printing`). No auto-print, print queue or ESC/POS — don't add without asking.
 
-## WhatsApp (Phase 6A) — Cloud API, no templates
+## WhatsApp (Phase 6A + 6B) — Cloud API, no templates
+- **No WhatsApp templates in this version. All outbound messages only inside the 24-hour customer window. Messages outside the window are skipped and logged.**
 - Graph API version lives ONLY in `src/lib/whatsapp/config.ts` (`GRAPH_API_VERSION`).
 - Webhook: `/api/webhooks/whatsapp` (GET = verify token, POST = `X-Hub-Signature-256` check on the RAW body → log to `whatsapp_webhook_events` → 200 → process in `after()`). Restaurant = account found by `phone_number_id`; unknown numbers are ignored.
 - Logic has no Next.js imports and talks to the DB through `WhatsAppStore` (`store.ts`; in-memory fake `memory-store.ts` for tests). Inbound saves go through RPC `whatsapp_record_inbound` (atomic, dedup by `wa_message_id`).
-- Outbound: ONLY `sendText()` (`src/lib/whatsapp/send.ts` / `server.ts`). It enforces the 24-hour window (outside → saved as `skipped`), retries network/5xx 3 times, saves every attempt. No templates — don't add without asking.
+- Outbound: ONLY through `createSender()` in `src/lib/whatsapp/send.ts` (server code: `whatsappSender()` / `sendText()` in `server.ts`): `sendText`, `sendImage`, `sendDocument`, `sendLocation`, `sendInteractiveButtons`, `sendInteractiveList`. Every helper validates Meta's limits (Zod), enforces the 24-hour window (outside → saved as `skipped`), retries network/5xx 3 times, saves every attempt. No templates — don't add without asking.
 - Access tokens: encrypted with `encryptToken()` (AES-256-GCM, `TOKEN_ENCRYPTION_KEY`), decrypted only in server code, never selected for the browser (no column grant). Meta echoes tokens in error messages: always pass errors through `redactToken()` (done in `graph.ts`).
 - Only super admin connects numbers (`/admin/whatsapp`, `src/lib/whatsapp/admin-actions.ts`, `requireSuperAdmin`). Owners see status at `/settings/whatsapp`.
 - Temporary greeting (until Phase 7 AI): `greeting.ts`, once per 6h per conversation (`whatsapp_claim_auto_reply`), closed = branch switch off or outside opening hours (`isOpenAt`).
-- `/inbox` is read-only for now (realtime on `whatsapp_messages`). Media download is 6B.
+- Order status messages (`order-updates.ts`, texts in `order-messages.ts`): accepted, preparing, ready (pickup only), out_for_delivery, delivered, cancelled. Each can be switched off in `/settings/whatsapp` (`restaurants.whatsapp_status_messages`). Saved with `order_id`. Customer-facing cancel reasons never reveal internal ones (e.g. "Fake order").
+- Media: inbound image/audio/document are downloaded (`media.ts`: media_id → URL → bytes, max 16 MB, bigger = error on the message) into the PRIVATE bucket `whatsapp-media` at `{restaurant_id}/{message_id}.{ext}`; the path is in `whatsapp_messages.media_url`. Only the server uploads. The inbox signs URLs with the USER client (Storage RLS) for 1 hour.
+- QR: `waMeLink()` / `qrSvg()` / `qrPng()` in `links.ts` (`qrcode` package). PNG at `/api/whatsapp/qr`, A5 poster at `/print/whatsapp-poster`.
+- `/inbox` is read-only for now (realtime on `whatsapp_messages`).
 - Saving a connection checks with Meta that the WABA ID is real and contains the phone number ID, then subscribes our app to it (without that subscription Meta sends nothing). Test connection reports whether the subscription is on.
 - Debugging: the webhook logs each step to the server console with the prefix `[whatsapp]`. Messages to numbers that aren't connected are recorded as an error on the `whatsapp_webhook_events` row.
 - Test without a phone: `npm run whatsapp:fake -- [slug] [--url http://localhost:3000] [--from 923001234567]`.
+- Real API check of every send helper: `npm run whatsapp:send-test -- <slug> --to <number that messaged in the last 24h>`.
+- E2E never calls Meta: Playwright starts a fake Graph API (`e2e/mock-graph.ts`, port 3999) and runs the app with `WHATSAPP_GRAPH_BASE_URL` pointing at it. Never set that variable in production.
 
 ## Tests
 - `npm test` (vitest, pure logic) · `npm run test:rls` (database security + engine against the real DB) · `npm run test:e2e` (Playwright, uses installed Chrome; needs `npm run build` first) · `npm run test:all` runs all three.
