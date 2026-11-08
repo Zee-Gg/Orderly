@@ -249,17 +249,25 @@ Riders themselves are `memberships` with role `rider`. Rider page `/rider` shows
 
 ## Phase 6 — WhatsApp
 
-### `whatsapp_accounts`
-id, restaurant_id, branch_id (null = all), phone_number_id (Meta), display_phone, waba_id, status, access token **stored in Supabase Vault, never in a table column**.
+6A ✅ (connection, receiving, temporary greeting, read-only inbox). Migration `20261112100000_whatsapp.sql`.
+Enums: `wa_direction` (inbound, outbound), `wa_message_type` (text, image, audio, document, location, interactive, button, unknown), `wa_message_status` (received, sent, delivered, read, failed, skipped), `wa_conversation_status` (open, resolved).
 
-### `conversations`
-id, restaurant_id, branch_id, customer_id, wa_contact_phone, mode conversation_mode (bot/staff), assigned_to, last_message_at, unread_count, draft_order jsonb (AI-parsed cart awaiting confirmation), status (open/closed).
+### `whatsapp_accounts` ✅
+id, restaurant_id (**unique** — one number per restaurant for now), branch_id (default branch for incoming orders; null = first branch), phone_number_id (**unique**, Meta), waba_id, display_phone_number, access_token_encrypted (AES-256-GCM with `TOKEN_ENCRYPTION_KEY`, format `v1:iv:tag:data`), is_active, connected_at, timestamps.
+Written only by super admin server actions (admin client). Owners/managers can SELECT every column **except** `access_token_encrypted` (column-level grant), so the token never reaches a browser. (Replaces the earlier Vault plan.)
 
-### `messages`
-id, restaurant_id, conversation_id, direction, wa_message_id **unique** (webhook idempotency), type (text/image/audio/location/interactive), body, media_url, payload jsonb, sent_by (staff user or null = bot/customer), status (sent/delivered/read/failed), created_at.
+### `whatsapp_conversations` ✅
+id, restaurant_id, customer_id, wa_id (customer's WhatsApp number, digits), last_customer_message_at (24-hour window), last_message_at, last_message_preview, last_auto_reply_at (greeting cooldown), status (open/resolved), bot_enabled (default true), timestamps. Unique (restaurant_id, wa_id).
+Front of house reads; no browser writes yet (Phase 10 adds takeover: mode, assigned_to, unread_count, draft_order).
 
-### `webhook_events`
-id, provider ('whatsapp' | payment), event_id unique, payload jsonb, processed_at, error. Signature verified before insert; duplicates ignored.
+### `whatsapp_messages` ✅
+id, restaurant_id, conversation_id, wa_message_id (**unique**, webhook idempotency; null for skipped/failed outbound), direction, type, body, media_id, media_url (our storage path — 6B), raw jsonb, status, error, created_at, updated_at.
+Front of house reads; only the server writes. Statuses only move forward (sent → delivered → read; failed).
+
+### `whatsapp_webhook_events` ✅
+id, raw jsonb, received_at, processed_at, error. Platform level (no restaurant_id: unknown until parsed). Super admin reads. Saved after the signature check, before processing.
+
+RPCs (service role only): `whatsapp_record_inbound(...)` — customer + conversation + message in one transaction, advisory lock per wa_message_id, returns `duplicate`; `whatsapp_claim_auto_reply(conversation_id, cooldown)` — true for exactly one caller per cooldown.
 
 Webhooks use the admin client (no user session) and must always scope writes by the `restaurant_id` resolved from the receiving phone number.
 
