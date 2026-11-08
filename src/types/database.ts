@@ -1295,9 +1295,11 @@ export type Database = {
         Row: {
           accepted_at: string | null
           branch_id: string | null
+          cancelled_at: string | null
           created_at: string | null
           customer_name: string | null
           expected_ready_at: string | null
+          hold_reason: string | null
           id: string | null
           is_on_hold: boolean | null
           notes: string | null
@@ -1316,9 +1318,11 @@ export type Database = {
         Insert: {
           accepted_at?: string | null
           branch_id?: string | null
+          cancelled_at?: string | null
           created_at?: string | null
           customer_name?: string | null
           expected_ready_at?: string | null
+          hold_reason?: string | null
           id?: string | null
           is_on_hold?: boolean | null
           notes?: string | null
@@ -1337,9 +1341,11 @@ export type Database = {
         Update: {
           accepted_at?: string | null
           branch_id?: string | null
+          cancelled_at?: string | null
           created_at?: string | null
           customer_name?: string | null
           expected_ready_at?: string | null
+          hold_reason?: string | null
           id?: string | null
           is_on_hold?: boolean | null
           notes?: string | null
