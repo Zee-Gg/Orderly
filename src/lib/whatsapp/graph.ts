@@ -44,16 +44,20 @@ async function call<T>(fetchImpl: FetchLike, path: string, token: string, init?:
   return { ok: true, data: json };
 }
 
-export function postTextMessage(fetchImpl: FetchLike, phoneNumberId: string, token: string, to: string, body: string) {
+/**
+ * Send any message type. `message` is the type-specific part, e.g.
+ * { type: "text", text: { body } } or { type: "image", image: { link, caption } }.
+ */
+export function postMessage(
+  fetchImpl: FetchLike,
+  phoneNumberId: string,
+  token: string,
+  to: string,
+  message: Record<string, unknown>,
+) {
   return call<{ messages?: { id: string }[] }>(fetchImpl, `${phoneNumberId}/messages`, token, {
     method: "POST",
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      recipient_type: "individual",
-      to,
-      type: "text",
-      text: { preview_url: false, body },
-    }),
+    body: JSON.stringify({ messaging_product: "whatsapp", recipient_type: "individual", to, ...message }),
   });
 }
 
@@ -87,4 +91,51 @@ export function getWabaSubscribedApps(fetchImpl: FetchLike, wabaId: string, toke
     `${wabaId}/subscribed_apps`,
     token,
   );
+}
+
+/** Step 1 of a media download: Meta gives a short-lived URL for the media_id. */
+export function getMediaInfo(fetchImpl: FetchLike, mediaId: string, token: string) {
+  return call<{ url?: string; mime_type?: string; file_size?: number | string }>(fetchImpl, mediaId, token);
+}
+
+/**
+ * Step 2: download the bytes (the URL also needs the token).
+ * Stops reading as soon as the file is bigger than `maxBytes`.
+ */
+export async function downloadMedia(
+  fetchImpl: FetchLike,
+  url: string,
+  token: string,
+  maxBytes: number,
+): Promise<{ ok: true; bytes: Uint8Array; mimeType: string | null } | { ok: false; error: string; tooBig?: boolean }> {
+  let res: Response;
+  try {
+    res = await fetchImpl(url, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(60_000) });
+  } catch (err) {
+    return { ok: false, error: redactToken(`Network error: ${err instanceof Error ? err.message : String(err)}`, token) };
+  }
+  if (!res.ok) return { ok: false, error: `Download failed: HTTP ${res.status}` };
+  const declared = Number(res.headers.get("content-length"));
+  if (declared > maxBytes) return { ok: false, error: `File is too big (${declared} bytes)`, tooBig: true };
+  const reader = res.body?.getReader();
+  if (!reader) return { ok: false, error: "Download failed: empty body" };
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel();
+      return { ok: false, error: `File is too big (more than ${maxBytes} bytes)`, tooBig: true };
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.byteLength;
+  }
+  return { ok: true, bytes, mimeType: res.headers.get("content-type") };
 }
