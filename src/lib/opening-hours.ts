@@ -78,3 +78,45 @@ export function toOpeningHours(value: unknown): OpeningHours {
   const parsed = openingHoursSchema.safeParse(value);
   return parsed.success ? parsed.data : DEFAULT_OPENING_HOURS;
 }
+
+const WEEKDAY_FROM_INTL: Record<string, Weekday> = {
+  Mon: "mon", Tue: "tue", Wed: "wed", Thu: "thu", Fri: "fri", Sat: "sat", Sun: "sun",
+};
+
+function toMinutes(value: string): number {
+  const [h, m] = value.split(":").map(Number);
+  return h * 60 + m;
+}
+
+/**
+ * Is a time inside the opening hours, in the restaurant's timezone?
+ * Handles closing after midnight (12:00 → 02:00 is open at 01:00 the next day).
+ */
+export function isOpenAt(hours: OpeningHours, date: Date, timeZone: string): boolean {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const today = WEEKDAY_FROM_INTL[get("weekday")];
+  if (!today) return false;
+  const now = Number(get("hour")) * 60 + Number(get("minute"));
+  const yesterday = WEEKDAYS[(WEEKDAYS.indexOf(today) + 6) % 7];
+
+  const t = hours[today];
+  if (!t.closed) {
+    const open = toMinutes(t.open);
+    const close = toMinutes(t.close);
+    if (close > open ? now >= open && now < close : now >= open) return true;
+  }
+  const y = hours[yesterday];
+  if (!y.closed) {
+    const open = toMinutes(y.open);
+    const close = toMinutes(y.close);
+    if (close < open && now < close) return true;
+  }
+  return false;
+}
