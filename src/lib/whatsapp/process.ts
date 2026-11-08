@@ -2,11 +2,13 @@ import { normalizePhone } from "@/lib/orders/phone";
 import { AUTO_REPLY_COOLDOWN_HOURS } from "./config";
 import { buildGreeting } from "./greeting";
 import { parseWebhookPayload } from "./payload";
+import { MEDIA_TYPES, storeInboundMedia } from "./media";
 import { createSender, type SenderDeps } from "./send";
 import type { AccountRecord } from "./store";
 
 export type ProcessSummary = {
   saved: number;
+  media: number;
   duplicates: number;
   statuses: number;
   autoReplies: number;
@@ -30,7 +32,7 @@ export async function processWebhookPayload(
   payload: unknown,
   log: ProcessLog = () => {},
 ): Promise<ProcessSummary> {
-  const summary: ProcessSummary = { saved: 0, duplicates: 0, statuses: 0, autoReplies: 0, ignored: 0, errors: [] };
+  const summary: ProcessSummary = { saved: 0, media: 0, duplicates: 0, statuses: 0, autoReplies: 0, ignored: 0, errors: [] };
   const { store } = deps;
   const now = deps.now ?? Date.now;
   const sender = createSender(deps);
@@ -44,6 +46,37 @@ export async function processWebhookPayload(
     if (!accounts.has(phoneNumberId)) accounts.set(phoneNumberId, await store.findAccountByPhoneNumberId(phoneNumberId));
     const found = accounts.get(phoneNumberId);
     return found?.isActive ? found : null;
+  }
+
+  /** The temporary greeting (until the Phase 7 bot). Never throws. */
+  async function greet(acc: AccountRecord, waId: string, result: { conversationId: string; botEnabled: boolean }) {
+    try {
+      if (!result.botEnabled) {
+        log("auto reply skipped: bot is off for this chat");
+        return;
+      }
+      if (!(await store.claimAutoReply(result.conversationId, AUTO_REPLY_COOLDOWN_HOURS))) {
+        log(`auto reply skipped: already greeted in the last ${AUTO_REPLY_COOLDOWN_HOURS}h`);
+        return;
+      }
+      const ctx = await store.getGreetingContext(acc.restaurantId, acc.branchId);
+      if (!ctx) {
+        log("auto reply skipped: restaurant details not found");
+        return;
+      }
+      const sent = await sender.sendText(acc.restaurantId, waId, buildGreeting(ctx, new Date(now())));
+      if (sent.ok) {
+        summary.autoReplies++;
+        log("auto reply sent", { waMessageId: sent.waMessageId });
+      } else {
+        summary.errors.push(`auto reply ${sent.status}: ${sent.error}`);
+        log(`auto reply ${sent.status}`, { error: sent.error });
+      }
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      summary.errors.push(`auto reply: ${text}`);
+      log("auto reply FAILED", { error: text });
+    }
   }
 
   for (const message of parsed.messages) {
@@ -68,26 +101,17 @@ export async function processWebhookPayload(
       summary.saved++;
       log("message saved", { messageId: result.messageId, waMessageId: message.waMessageId });
 
-      if (!result.botEnabled) {
-        log("auto reply skipped: bot is off for this chat");
-        continue;
-      }
-      if (!(await store.claimAutoReply(result.conversationId, AUTO_REPLY_COOLDOWN_HOURS))) {
-        log(`auto reply skipped: already greeted in the last ${AUTO_REPLY_COOLDOWN_HOURS}h`);
-        continue;
-      }
-      const ctx = await store.getGreetingContext(acc.restaurantId, acc.branchId);
-      if (!ctx) {
-        log("auto reply skipped: restaurant details not found");
-        continue;
-      }
-      const sent = await sender.sendText(acc.restaurantId, message.waId, buildGreeting(ctx, new Date(now())));
-      if (sent.ok) {
-        summary.autoReplies++;
-        log("auto reply sent", { waMessageId: sent.waMessageId });
-      } else {
-        summary.errors.push(`auto reply ${sent.status}: ${sent.error}`);
-        log(`auto reply ${sent.status}`, { error: sent.error });
+      await greet(acc, message.waId, result);
+
+      if (message.mediaId && MEDIA_TYPES.has(message.type)) {
+        const media = await storeInboundMedia(deps, acc, result.messageId, message.mediaId);
+        if (media.ok) {
+          summary.media++;
+          log("media saved", { path: media.path, bytes: media.size });
+        } else {
+          summary.errors.push(`media ${message.waMessageId}: ${media.error}`);
+          log("media NOT saved", { error: media.error });
+        }
       }
     } catch (err) {
       const text = err instanceof Error ? err.message : String(err);
