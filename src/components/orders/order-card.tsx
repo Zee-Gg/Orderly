@@ -53,6 +53,7 @@ export function OrderCard({
   return (
     <Card
       padding="none"
+      data-order-number={order.orderNumber}
       tone={urgent ? "urgent" : isNew ? "new" : "default"}
       className={cn(
         "transition-shadow",
