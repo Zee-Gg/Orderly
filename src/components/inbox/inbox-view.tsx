@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -13,6 +13,7 @@ import {
   Image as ImageIcon,
   MapPin,
   MessageCircle,
+  ShoppingBag,
   Mic,
   Wifi,
   WifiOff,
@@ -27,7 +28,7 @@ import type { InboxConversation, InboxMessage } from "@/lib/whatsapp/queries";
 const URDU = /[؀-ۿ]/;
 
 function displayName(c: InboxConversation) {
-  return c.name || formatPhone(c.phone) || `+${c.waId}`;
+  return c.name || formatPhone(c.phone ?? `+${c.waId}`) || `+${c.waId}`;
 }
 
 const TYPE_LABEL: Record<string, { icon: typeof Mic; label: string }> = {
@@ -96,7 +97,7 @@ export function InboxView({
                 </span>
                 {c.name && c.phone ? <span className="text-xs text-muted">{formatPhone(c.phone)}</span> : null}
                 <span dir="auto" className={cn("truncate text-sm text-muted", c.preview && URDU.test(c.preview) && "font-urdu")}>
-                  {c.preview ?? ""}
+                  {(c.preview ?? "").replace(/\*([^*\n]+)\*/g, "$1")}
                 </span>
               </Link>
             </li>
@@ -135,7 +136,7 @@ function Thread({
         </Link>
         <div className="min-w-0">
           <p className="truncate font-bold text-ink">{displayName(conversation)}</p>
-          <p className="text-xs text-muted">{formatPhone(conversation.phone) || `+${conversation.waId}`}</p>
+          <p className="text-xs text-muted">{formatPhone(conversation.phone ?? `+${conversation.waId}`) || `+${conversation.waId}`}</p>
         </div>
       </header>
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto bg-subtle/50 p-3 lg:p-4">
@@ -165,7 +166,14 @@ function Bubble({ message: m, timezone }: { message: InboxMessage; timezone: str
           (m.status === "failed" || m.status === "skipped") && "opacity-80 ring-1 ring-status-cancelled-border",
         )}
       >
-        {kind && Icon ? (
+        {m.orderId ? (
+          <p className="mb-1 flex items-center gap-1.5 text-xs font-semibold text-muted">
+            <ShoppingBag aria-hidden className="size-3.5" /> Order update
+          </p>
+        ) : null}
+        {m.mediaUrl && (m.type === "image" || m.type === "audio" || m.type === "document") ? (
+          <Media message={m} />
+        ) : kind && Icon ? (
           <p className="mb-1 flex items-center gap-1.5 text-sm font-semibold text-muted">
             <Icon aria-hidden className="size-4" /> {kind.label}
           </p>
@@ -188,6 +196,46 @@ function Bubble({ message: m, timezone }: { message: InboxMessage; timezone: str
         ) : null}
       </div>
     </div>
+  );
+}
+
+/**
+ * Photo / voice note / document. Signed URLs change on every refresh, so keep
+ * the first one (no re-download on weak internet) and only switch to the new
+ * one if the old link has expired (load error).
+ */
+function Media({ message: m }: { message: InboxMessage }) {
+  const [src, setSrc] = useState(m.mediaUrl!);
+  const retry = () => {
+    if (m.mediaUrl && m.mediaUrl !== src) setSrc(m.mediaUrl);
+  };
+  if (m.type === "image") {
+    return (
+      <a href={src} target="_blank" rel="noopener noreferrer" className="mb-1 block" aria-label="Open photo">
+        {/* eslint-disable-next-line @next/next/no-img-element -- short-lived signed URL, not for next/image */}
+        <img src={src} onError={retry} alt="Photo from the chat" loading="lazy" className="max-h-72 w-auto max-w-full rounded-control object-contain" />
+      </a>
+    );
+  }
+  if (m.type === "audio") {
+    return (
+      <div className="mb-1 flex flex-col gap-1">
+        <p className="flex items-center gap-1.5 text-sm font-semibold text-muted">
+          <Mic aria-hidden className="size-4" /> Voice note
+        </p>
+        <audio controls preload="none" src={src} onError={retry} className="h-11 w-64 max-w-full" aria-label="Voice note" />
+      </div>
+    );
+  }
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="mb-1 flex min-h-touch items-center gap-2 rounded-control border border-line bg-surface px-3 text-sm font-semibold text-ink hover:bg-subtle"
+    >
+      <FileText aria-hidden className="size-5 shrink-0" /> Open document
+    </a>
   );
 }
 
