@@ -250,6 +250,8 @@ Riders themselves are `memberships` with role `rider`. Rider page `/rider` shows
 ## Phase 6 — WhatsApp
 
 6A ✅ (connection, receiving, temporary greeting, read-only inbox). Migration `20261112100000_whatsapp.sql`.
+6B ✅ (order status messages, QR code, media storage, send helpers for the bot). Migration `20261113100000_whatsapp_6b.sql`.
+No WhatsApp templates: every outbound message only inside the 24-hour customer window; outside it the message is saved as `skipped` and not sent.
 Enums: `wa_direction` (inbound, outbound), `wa_message_type` (text, image, audio, document, location, interactive, button, unknown), `wa_message_status` (received, sent, delivered, read, failed, skipped), `wa_conversation_status` (open, resolved).
 
 ### `whatsapp_accounts` ✅
@@ -261,8 +263,14 @@ id, restaurant_id, customer_id, wa_id (customer's WhatsApp number, digits), last
 Front of house reads; no browser writes yet (Phase 10 adds takeover: mode, assigned_to, unread_count, draft_order).
 
 ### `whatsapp_messages` ✅
-id, restaurant_id, conversation_id, wa_message_id (**unique**, webhook idempotency; null for skipped/failed outbound), direction, type, body, media_id, media_url (our storage path — 6B), raw jsonb, status, error, created_at, updated_at.
+id, restaurant_id, conversation_id, wa_message_id (**unique**, webhook idempotency; null for skipped/failed outbound), direction, type, body, media_id (Meta), media_url (inbound: our Storage path `{restaurant_id}/{message_id}.{ext}`; outbound: the https link we sent), media_mime_type, media_size, order_id (order status messages; composite FK to orders, `on delete set null (order_id)`), raw jsonb, status, error, created_at, updated_at.
 Front of house reads; only the server writes. Statuses only move forward (sent → delivered → read; failed).
+
+### `restaurants.whatsapp_status_messages` ✅ (6B)
+jsonb, default all on: `{accepted, preparing, ready, out_for_delivery, delivered, cancelled}` → true/false. Owner updates (column grant + restaurant RLS).
+
+### Storage: `whatsapp-media` bucket ✅ (6B)
+Private, 16 MB limit. Path `{restaurant_id}/{message_id}.{ext}`. Only the service role uploads. Owner/manager/staff of that restaurant (and super admin) can read → the inbox creates 1-hour signed URLs with the user's client. Kitchen and other restaurants can't.
 
 ### `whatsapp_webhook_events` ✅
 id, raw jsonb, received_at, processed_at, error. Platform level (no restaurant_id: unknown until parsed). Super admin reads. Saved after the signature check, before processing.
