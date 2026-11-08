@@ -83,6 +83,19 @@ Users: restaurant owner, manager, staff (cashier/order taker), kitchen, rider, a
 - The "printed" timeline entry is written by `recordPrintAction` AFTER the print dialog opens — never on page load (prefetches).
 - Settings: `restaurants.receipt_paper_width`, `bill_header`, `bill_footer` (`/settings/printing`). No auto-print, print queue or ESC/POS — don't add without asking.
 
+## WhatsApp (Phase 6A) — Cloud API, no templates
+- Graph API version lives ONLY in `src/lib/whatsapp/config.ts` (`GRAPH_API_VERSION`).
+- Webhook: `/api/webhooks/whatsapp` (GET = verify token, POST = `X-Hub-Signature-256` check on the RAW body → log to `whatsapp_webhook_events` → 200 → process in `after()`). Restaurant = account found by `phone_number_id`; unknown numbers are ignored.
+- Logic has no Next.js imports and talks to the DB through `WhatsAppStore` (`store.ts`; in-memory fake `memory-store.ts` for tests). Inbound saves go through RPC `whatsapp_record_inbound` (atomic, dedup by `wa_message_id`).
+- Outbound: ONLY `sendText()` (`src/lib/whatsapp/send.ts` / `server.ts`). It enforces the 24-hour window (outside → saved as `skipped`), retries network/5xx 3 times, saves every attempt. No templates — don't add without asking.
+- Access tokens: encrypted with `encryptToken()` (AES-256-GCM, `TOKEN_ENCRYPTION_KEY`), decrypted only in server code, never selected for the browser (no column grant). Meta echoes tokens in error messages: always pass errors through `redactToken()` (done in `graph.ts`).
+- Only super admin connects numbers (`/admin/whatsapp`, `src/lib/whatsapp/admin-actions.ts`, `requireSuperAdmin`). Owners see status at `/settings/whatsapp`.
+- Temporary greeting (until Phase 7 AI): `greeting.ts`, once per 6h per conversation (`whatsapp_claim_auto_reply`), closed = branch switch off or outside opening hours (`isOpenAt`).
+- `/inbox` is read-only for now (realtime on `whatsapp_messages`). Media download is 6B.
+- Saving a connection checks with Meta that the WABA ID is real and contains the phone number ID, then subscribes our app to it (without that subscription Meta sends nothing). Test connection reports whether the subscription is on.
+- Debugging: the webhook logs each step to the server console with the prefix `[whatsapp]`. Messages to numbers that aren't connected are recorded as an error on the `whatsapp_webhook_events` row.
+- Test without a phone: `npm run whatsapp:fake -- [slug] [--url http://localhost:3000] [--from 923001234567]`.
+
 ## Tests
 - `npm test` (vitest, pure logic) · `npm run test:rls` (database security + engine against the real DB) · `npm run test:e2e` (Playwright, uses installed Chrome; needs `npm run build` first) · `npm run test:all` runs all three.
 
