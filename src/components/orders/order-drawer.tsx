@@ -61,6 +61,8 @@ function eventText(e: EventRow): string {
       return "Released from hold";
     case "payment_updated":
       return `Marked paid · ${PAYMENT_METHOD_LABELS[data.method as keyof typeof PAYMENT_METHOD_LABELS] ?? ""}${data.reference ? ` (${String(data.reference)})` : ""}`;
+    case "printed":
+      return data.kind === "bill" ? "Bill printed" : "Kitchen slip printed";
     default:
       return e.event_type.replace("_", " ");
   }
@@ -392,18 +394,22 @@ export function OrderDrawer({
             </section>
           ) : null}
           <section className="flex flex-wrap gap-2">
-            <Button variant="ghost" icon={<Printer />} disabled title="Coming in next update">
-              Print bill
-            </Button>
-            <Button variant="ghost" icon={<Printer />} disabled title="Coming in next update">
-              Kitchen slip
-            </Button>
+            {can(role, "orders.print_bill") ? (
+              <Button variant="secondary" icon={<Printer />} onClick={() => window.open(`/print/bill/${shown.id}`, "_blank", "noopener")}>
+                Print bill
+              </Button>
+            ) : null}
+            {can(role, "orders.print_kot") ? (
+              <Button variant="secondary" icon={<Printer />} onClick={() => window.open(`/print/kot/${shown.id}`, "_blank", "noopener")}>
+                Print KOT
+              </Button>
+            ) : null}
             {shown.order_type === "delivery" ? (
               <Button variant="ghost" icon={<Bike />} disabled title="Coming in next update">
                 Assign rider
               </Button>
             ) : null}
-            <p className="w-full text-xs text-muted">Printing and riders are coming in the next update.</p>
+            <p className="w-full text-xs text-muted">Assigning riders is coming in a later update.</p>
           </section>
 
           {/* Timeline */}
