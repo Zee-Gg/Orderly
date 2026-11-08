@@ -27,6 +27,7 @@ const admin: Client = createClient<Database>(url, secretKey, noSession);
 const RUN = Date.now().toString(36);
 const PASSWORD = `Rls-test-${RUN}-Aa1!`;
 const LOGO_BUCKET = "restaurant-logos";
+const MEDIA_BUCKET = "whatsapp-media";
 
 // ---------------------------------------------------------------------------
 // Reporting
@@ -48,6 +49,7 @@ type TestUser = { id: string; email: string; client: Client };
 const createdUserIds: string[] = [];
 const createdRestaurantIds: string[] = [];
 const uploadedPaths: string[] = [];
+const uploadedMediaPaths: string[] = [];
 
 async function makeUser(label: string): Promise<TestUser> {
   const email = `rls-${label}-${RUN}@example.com`;
@@ -981,11 +983,49 @@ async function whatsappChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: Test
   const anon = createClient<Database>(url!, publishableKey!, noSession);
   const anonMsg = await anon.from("whatsapp_messages").select("id");
   check("Anonymous users cannot read messages", anonMsg.error !== null || anonMsg.data.length === 0, JSON.stringify(anonMsg));
+  const updMedia = await ownerA.client
+    .from("whatsapp_messages")
+    .update({ media_url: `${restA.id}/forged.png` })
+    .eq("conversation_id", conversationId)
+    .select("id");
+  check("Owner cannot change a message's media link", updMedia.error !== null || updMedia.data?.length === 0, JSON.stringify(updMedia));
+
+  section("WhatsApp: customer media (private bucket)");
+  const mediaPath = `${restA.id}/rls-${RUN}.png`;
+  const up = await admin.storage.from(MEDIA_BUCKET).upload(mediaPath, new Uint8Array([137, 80, 78, 71]), { contentType: "image/png" });
+  if (!up.error) uploadedMediaPaths.push(mediaPath);
+  check("Server can store customer media under {restaurant_id}/", up.error === null, JSON.stringify(up.error));
+  const signA = await ownerA.client.storage.from(MEDIA_BUCKET).createSignedUrl(mediaPath, 3600);
+  const fetched = signA.data ? await fetch(signA.data.signedUrl) : null;
+  check("Owner A gets a working 1-hour link to their media", fetched?.status === 200, JSON.stringify(signA.error));
+  const signB = await ownerB.client.storage.from(MEDIA_BUCKET).createSignedUrl(mediaPath, 3600);
+  check("Restaurant B cannot open A's media", signB.error !== null, JSON.stringify(signB.data));
+  const signK = await kitchenA.client.storage.from(MEDIA_BUCKET).createSignedUrl(mediaPath, 3600);
+  check("Kitchen cannot open customer media", signK.error !== null, JSON.stringify(signK.data));
+  const signAnon = await anon.storage.from(MEDIA_BUCKET).createSignedUrl(mediaPath, 3600);
+  check("Anonymous users cannot open media", signAnon.error !== null, JSON.stringify(signAnon.data));
+  const publicRead = await fetch(anon.storage.from(MEDIA_BUCKET).getPublicUrl(mediaPath).data.publicUrl);
+  check("The media bucket is not public", publicRead.status !== 200, String(publicRead.status));
+  const ownerUpload = await ownerA.client.storage.from(MEDIA_BUCKET).upload(`${restA.id}/forged-${RUN}.png`, new Uint8Array([1]));
+  if (!ownerUpload.error) uploadedMediaPaths.push(`${restA.id}/forged-${RUN}.png`);
+  check("Users cannot upload into the media bucket (server only)", ownerUpload.error !== null, JSON.stringify(ownerUpload.data));
+
+  section("WhatsApp: order message settings");
+  const settings = { accepted: true, preparing: false, ready: true, out_for_delivery: true, delivered: true, cancelled: true };
+  const ownSet = await ownerA.client.from("restaurants").update({ whatsapp_status_messages: settings }).eq("id", restA.id).select("id");
+  check("Owner A can switch order messages on/off", !ownSet.error && ownSet.data.length === 1, JSON.stringify(ownSet));
+  const badSet = await ownerA.client.from("restaurants").update({ whatsapp_status_messages: [] }).eq("id", restA.id).select("id");
+  check("Order message settings must be an object", badSet.error !== null, JSON.stringify(badSet));
+  const kSet = await kitchenA.client.from("restaurants").update({ whatsapp_status_messages: {} }).eq("id", restA.id).select("id");
+  check("Kitchen cannot change order message settings", kSet.error !== null || kSet.data?.length === 0, JSON.stringify(kSet));
+  const bSet = await ownerB.client.from("restaurants").update({ whatsapp_status_messages: {} }).eq("id", restA.id).select("id");
+  check("Restaurant B cannot change A's order message settings", bSet.error !== null || bSet.data?.length === 0, JSON.stringify(bSet));
 }
 
 async function cleanup() {
   section("Cleanup");
   if (uploadedPaths.length) await admin.storage.from(LOGO_BUCKET).remove(uploadedPaths);
+  if (uploadedMediaPaths.length) await admin.storage.from(MEDIA_BUCKET).remove(uploadedMediaPaths);
   await admin.from("whatsapp_webhook_events").delete().eq("raw->>rls", RUN);
   if (createdRestaurantIds.length) {
     const { error } = await admin.from("restaurants").delete().in("id", createdRestaurantIds);
