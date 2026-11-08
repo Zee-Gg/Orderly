@@ -23,7 +23,7 @@ export function useLiveRefresh({
   filter,
   refresh,
 }: {
-  table: "orders" | "order_events";
+  table: "orders" | "order_events" | "whatsapp_messages";
   /** postgres_changes filter, e.g. "branch_id=eq.<id>" */
   filter: string;
   refresh: () => Promise<void> | void;
