@@ -1,4 +1,10 @@
-import { STATUS_FROM, type AccountRecord, type GreetingContext, type WhatsAppStore } from "./store";
+import {
+  STATUS_FROM,
+  type AccountRecord,
+  type GreetingContext,
+  type OrderMessageContext,
+  type WhatsAppStore,
+} from "./store";
 import type { WaMessageStatus } from "./payload";
 
 /**
@@ -12,12 +18,25 @@ export type MemoryMessage = {
   conversationId: string;
   direction: "inbound" | "outbound";
   waMessageId: string | null;
+  type: string;
   body: string | null;
+  mediaId: string | null;
+  mediaUrl: string | null;
+  mediaMimeType: string | null;
+  mediaSize: number | null;
+  orderId: string | null;
   status: WaMessageStatus;
   error: string | null;
 };
 
-export function createMemoryStore(seed: { accounts?: AccountRecord[]; greeting?: GreetingContext; now?: () => number } = {}) {
+export function createMemoryStore(
+  seed: {
+    accounts?: AccountRecord[];
+    greeting?: GreetingContext;
+    orders?: Record<string, OrderMessageContext>;
+    now?: () => number;
+  } = {},
+) {
   const now = seed.now ?? Date.now;
   let seq = 0;
   const id = (p: string) => `${p}-${++seq}`;
@@ -33,6 +52,7 @@ export function createMemoryStore(seed: { accounts?: AccountRecord[]; greeting?:
   }[] = [];
   const customers: { id: string; restaurantId: string; phone: string; name: string | null }[] = [];
   const messages: MemoryMessage[] = [];
+  const files = new Map<string, { bytes: Uint8Array; mimeType: string }>();
 
   const store: WhatsAppStore = {
     async findAccountByPhoneNumberId(phoneNumberId) {
@@ -64,7 +84,8 @@ export function createMemoryStore(seed: { accounts?: AccountRecord[]; greeting?:
       if (!c.lastCustomerMessageAt || m.sentAt > c.lastCustomerMessageAt) c.lastCustomerMessageAt = m.sentAt;
       const msg: MemoryMessage = {
         id: id("msg"), restaurantId, conversationId: c.id, direction: "inbound",
-        waMessageId: m.waMessageId, body: m.body, status: "received", error: null,
+        waMessageId: m.waMessageId, type: m.type, body: m.body, mediaId: m.mediaId, mediaUrl: null, mediaMimeType: null,
+        mediaSize: null, orderId: null, status: "received", error: null,
       };
       messages.push(msg);
       return { conversationId: c.id, customerId: c.customerId, messageId: msg.id, duplicate: false, botEnabled: c.botEnabled };
@@ -73,7 +94,9 @@ export function createMemoryStore(seed: { accounts?: AccountRecord[]; greeting?:
       if (row.waMessageId && messages.some((x) => x.waMessageId === row.waMessageId)) throw new Error("duplicate wa_message_id");
       const msg: MemoryMessage = {
         id: id("msg"), restaurantId: row.restaurantId, conversationId: row.conversationId, direction: "outbound",
-        waMessageId: row.waMessageId ?? null, body: row.body, status: row.status, error: row.error ?? null,
+        waMessageId: row.waMessageId ?? null, type: row.type ?? "text", body: row.body, mediaId: null,
+        mediaUrl: row.mediaUrl ?? null, mediaMimeType: null, mediaSize: null, orderId: row.orderId ?? null,
+        status: row.status, error: row.error ?? null,
       };
       messages.push(msg);
       return msg.id;
@@ -97,7 +120,19 @@ export function createMemoryStore(seed: { accounts?: AccountRecord[]; greeting?:
     async getGreetingContext() {
       return seed.greeting ?? null;
     },
+    async getOrderMessageContext(_restaurantId, orderId) {
+      return seed.orders?.[orderId] ?? null;
+    },
+    async uploadMedia(path, bytes, mimeType) {
+      files.set(path, { bytes, mimeType });
+    },
+    async saveMediaResult(restaurantId, messageId, result) {
+      const msg = messages.find((x) => x.id === messageId && x.restaurantId === restaurantId);
+      if (!msg) return;
+      if (result.ok) Object.assign(msg, { mediaUrl: result.path, mediaMimeType: result.mimeType, mediaSize: result.size });
+      else msg.error = result.error;
+    },
   };
 
-  return { store, accounts, conversations, customers, messages };
+  return { store, accounts, conversations, customers, messages, files };
 }
