@@ -14,7 +14,7 @@ async function Branches() {
   // RLS limits this to branches the member can access.
   const { data } = await supabase
     .from("branches")
-    .select("id, name, address, area, city, phone, is_open, is_active, opening_hours")
+    .select("id, name, address, area, city, phone, is_open, is_active, opening_hours, default_delivery_fee, minimum_order")
     .eq("restaurant_id", ctx.restaurant.id)
     .order("created_at");
 
@@ -28,6 +28,8 @@ async function Branches() {
     isOpen: b.is_open,
     isActive: b.is_active,
     openingHours: toOpeningHours(b.opening_hours),
+    deliveryFee: b.default_delivery_fee,
+    minimumOrder: b.minimum_order,
   }));
 
   return (
