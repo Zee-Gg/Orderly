@@ -120,3 +120,9 @@ export function isOpenAt(hours: OpeningHours, date: Date, timeZone: string): boo
   }
   return false;
 }
+
+/** Day of the week ("mon"…"sun") at `date` in the restaurant's time zone. */
+export function weekdayAt(date: Date, timeZone: string): (typeof WEEKDAYS)[number] {
+  const name = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(date);
+  return WEEKDAY_FROM_INTL[name] ?? "mon";
+}
