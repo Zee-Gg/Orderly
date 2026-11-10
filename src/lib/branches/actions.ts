@@ -43,6 +43,8 @@ function toRow(input: z.output<typeof branchSchema>) {
     phone: input.phone || null,
     opening_hours: input.openingHours,
     is_active: input.isActive,
+    default_delivery_fee: input.deliveryFee,
+    minimum_order: input.minimumOrder,
   };
 }
 
@@ -90,7 +92,7 @@ export async function updateBranch(branchId: string, input: BranchInput): Promis
     const supabase = await createClient();
     const { data: before } = await supabase
       .from("branches")
-      .select("name, address, area, city, phone, opening_hours, is_active")
+      .select("name, address, area, city, phone, opening_hours, is_active, default_delivery_fee, minimum_order")
       .eq("id", id.data)
       .eq("restaurant_id", ctx.restaurant.id)
       .single();
