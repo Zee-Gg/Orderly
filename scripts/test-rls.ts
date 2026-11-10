@@ -10,6 +10,11 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
 import { createOrder, transitionOrder, type Actor } from "../src/lib/orders/engine";
 import { encryptToken } from "../src/lib/whatsapp/crypto";
+import { MockLanguageModelV4 } from "ai/test";
+import { runBotTurn } from "../src/lib/bot/agent";
+import { buildMenuIndex } from "../src/lib/bot/menu-index";
+import { createSupabaseBotStore } from "../src/lib/bot/store";
+import { createBotTestRestaurant } from "../src/lib/bot/testing/test-restaurant";
 
 process.loadEnvFile(".env.local");
 
@@ -378,6 +383,8 @@ async function main() {
   await orderChecks(ownerA, ownerB, kitchenA, restA, restB);
   await menuChecks(ownerA, ownerB, kitchenA, restA, restB);
   await whatsappChecks(ownerA, ownerB, kitchenA, restA);
+  await botChecks(ownerA, ownerB, kitchenA, restA);
+  await botConversationCheck();
 }
 
 async function orderChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest, restB: Rest) {
@@ -1058,3 +1065,180 @@ async function run() {
 }
 
 void run();
+
+async function botChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest) {
+  section("Bot: sessions and AI logs are private to the restaurant");
+  const sess = await admin
+    .from("bot_sessions")
+    .insert({ restaurant_id: restA.id, branch_id: restA.branchId, cart: [{ lineId: "L1", name: "Zinger" }] })
+    .select("id")
+    .single();
+  check("Server can create a bot session", !sess.error && !!sess.data, JSON.stringify(sess.error));
+  const log = await admin.from("ai_logs").insert({ restaurant_id: restA.id, session_id: sess.data?.id, input_text: "2 zinger", model: "test" });
+  check("Server can write an AI log", log.error === null, JSON.stringify(log.error));
+
+  const ownSess = await ownerA.client.from("bot_sessions").select("id, cart").eq("restaurant_id", restA.id);
+  const ownLogs = await ownerA.client.from("ai_logs").select("id").eq("restaurant_id", restA.id);
+  check("Owner A can read their bot sessions", !ownSess.error && ownSess.data.length === 1, JSON.stringify(ownSess));
+  check("Owner A can read their AI logs", !ownLogs.error && ownLogs.data.length === 1, JSON.stringify(ownLogs));
+  const bSess = await ownerB.client.from("bot_sessions").select("id").eq("restaurant_id", restA.id);
+  const bLogs = await ownerB.client.from("ai_logs").select("id").eq("restaurant_id", restA.id);
+  check("Restaurant B cannot read the bot sessions of A", !bSess.error && bSess.data.length === 0, JSON.stringify(bSess));
+  check("Restaurant B cannot read the AI logs of A", !bLogs.error && bLogs.data.length === 0, JSON.stringify(bLogs));
+  const kSess = await kitchenA.client.from("bot_sessions").select("id");
+  const kLogs = await kitchenA.client.from("ai_logs").select("id");
+  check(
+    "Kitchen cannot read bot sessions or AI logs",
+    (kSess.data?.length ?? 0) === 0 && (kLogs.data?.length ?? 0) === 0,
+    JSON.stringify({ kSess, kLogs }),
+  );
+  const anon = createClient<Database>(url!, publishableKey!, noSession);
+  const anonSess = await anon.from("bot_sessions").select("id");
+  check("Anonymous users cannot read bot sessions", anonSess.error !== null || anonSess.data.length === 0, JSON.stringify(anonSess));
+
+  section("Bot: nobody writes bot data or risk flags from the browser");
+  const insSess = await ownerA.client.from("bot_sessions").insert({ restaurant_id: restA.id, branch_id: restA.branchId });
+  check("Owner cannot create bot sessions", insSess.error !== null, JSON.stringify(insSess));
+  const updSess = await ownerA.client.from("bot_sessions").update({ status: "completed" }).eq("id", sess.data!.id).select("id");
+  check("Owner cannot change a bot session (e.g. its cart)", updSess.error !== null || updSess.data?.length === 0, JSON.stringify(updSess));
+  const insLog = await ownerA.client.from("ai_logs").insert({ restaurant_id: restA.id, input_text: "x" });
+  check("Owner cannot write AI logs", insLog.error !== null, JSON.stringify(insLog));
+  const { data: anyOrder } = await admin.from("orders").select("id").eq("restaurant_id", restA.id).limit(1).maybeSingle();
+  if (anyOrder) {
+    const upd = await ownerA.client.from("orders").update({ risk_flag: null }).eq("id", anyOrder.id).select("id");
+    check("Owner cannot clear the risk flag of an order", upd.error !== null || upd.data?.length === 0, JSON.stringify(upd));
+  }
+
+  section("Bot: settings");
+  const fee = await ownerA.client
+    .from("branches")
+    .update({ default_delivery_fee: 20000, minimum_order: 60000 })
+    .eq("id", restA.branchId)
+    .select("id");
+  check("Owner can set the branch delivery fee and minimum order", !fee.error && fee.data.length === 1, JSON.stringify(fee));
+  const badFee = await ownerA.client.from("branches").update({ default_delivery_fee: -1 }).eq("id", restA.branchId).select("id");
+  check("Delivery fee cannot be negative", badFee.error !== null, JSON.stringify(badFee));
+  const kFee = await kitchenA.client.from("branches").update({ default_delivery_fee: 0 }).eq("id", restA.branchId).select("id");
+  check("Kitchen cannot change delivery fees", kFee.error !== null || kFee.data?.length === 0, JSON.stringify(kFee));
+  const bot = await ownerA.client
+    .from("restaurants")
+    .update({ bot_enabled: false, high_value_cod_threshold: 800000 })
+    .eq("id", restA.id)
+    .select("id");
+  check("Owner can switch the bot off and set the high-value limit", !bot.error && bot.data.length === 1, JSON.stringify(bot));
+  const bBot = await ownerB.client.from("restaurants").update({ bot_enabled: true }).eq("id", restA.id).select("id");
+  check("Restaurant B cannot switch the bot of A", bBot.error !== null || bBot.data?.length === 0, JSON.stringify(bBot));
+}
+
+/**
+ * A full scripted conversation (fake model, REAL database, pricing and order
+ * engine) creates exactly one correct order.
+ */
+async function botConversationCheck() {
+  section("Bot: scripted conversation creates exactly one correct order");
+  const t = await createBotTestRestaurant(admin, { url: url!, publishableKey: publishableKey! }, "rls");
+  createdRestaurantIds.push(t.restaurantId);
+  createdUserIds.push(t.ownerId);
+  try {
+    const store = createSupabaseBotStore(admin);
+    const idx = buildMenuIndex(await store.getMenu(t.restaurantId, t.openBranchId));
+    const ref = (name: string) => idx.itemRef.get(t.itemIds[name])!;
+    const customerId = await t.newCustomer({ name: null });
+
+    type Step = { tools?: { name: string; input: unknown }[]; text?: string };
+    const turns: Step[][] = [
+      [
+        {
+          tools: [
+            { name: "add_to_cart", input: { item_id: ref("Chicken Tikka Pizza"), variant_id: "Large", option_ids: ["Extra Cheese"], removals: ["Onion"] } },
+            { name: "add_to_cart", input: { item_id: ref("Zinger Burger"), quantity: 2 } },
+          ],
+        },
+        { text: "Pizza aur 2 Zinger add kar diye. Delivery ya pickup?" },
+      ],
+      [
+        {
+          tools: [
+            { name: "set_delivery_address", input: { address_text: "House 7, Street 2", area: "Clifton", landmark: "near Dolmen Mall" } },
+            { name: "set_payment_method", input: { payment_method: "cod" } },
+            { name: "set_customer_name", input: { name: "Sana" } },
+          ],
+        },
+        { tools: [{ name: "show_order_summary", input: {} }] },
+        { text: "" },
+      ],
+    ];
+    let turn = 0;
+    let step = 0;
+    const model = new MockLanguageModelV4({
+      modelId: "scripted",
+      doGenerate: async () => {
+        const s = turns[turn][Math.min(step++, turns[turn].length - 1)];
+        return {
+          content: [
+            ...(s.tools ?? []).map((x, i) => ({ type: "tool-call" as const, toolCallId: `t${turn}-${step}-${i}`, toolName: x.name, input: JSON.stringify(x.input) })),
+            ...(s.text !== undefined ? [{ type: "text" as const, text: s.text }] : []),
+          ],
+          finishReason: { unified: s.tools?.length ? ("tool-calls" as const) : ("stop" as const), raw: undefined },
+          usage: { inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 10, text: 10, reasoning: 0 } },
+          warnings: [],
+        };
+      },
+    });
+    const deps = { store, provider: "google" as const, model: { model, modelId: "scripted" } };
+    const base = { restaurantId: t.restaurantId, branchId: t.openBranchId, customerId };
+
+    const r1 = await runBotTurn({ ...base, sessionId: null, customerMessages: ["ek large tikka pizza extra cheese onion nahi", "aur 2 zinger"] }, deps);
+    turn = 1;
+    step = 0;
+    const r2 = await runBotTurn(
+      { ...base, sessionId: r1.sessionId, customerMessages: ["delivery, House 7 Street 2 Clifton near Dolmen Mall, cash, naam Sana"] },
+      deps,
+    );
+    check(
+      "Summary is shown with Confirm/Change/Cancel",
+      r2.session.status === "awaiting_confirmation" && r2.showButtons?.[0]?.id === "confirm",
+      JSON.stringify(r2.replyText),
+    );
+    check("Summary total comes from the pricing engine (2,000 + 1,100 + 150 delivery)", (r2.replyText ?? "").includes("Rs 3,250"), r2.replyText ?? "");
+
+    const r3 = await runBotTurn({ ...base, sessionId: r1.sessionId, customerMessages: ["Confirm"], buttonId: "confirm" }, deps);
+    // A double tap on Confirm must not create a second order.
+    await runBotTurn({ ...base, sessionId: r1.sessionId, customerMessages: ["Confirm"], buttonId: "confirm" }, deps);
+
+    const { data: orders } = await admin
+      .from("orders")
+      .select(
+        "id, order_number, status, source, order_type, payment_method, subtotal, delivery_fee, total, customer_name, risk_flag, items:order_items(item_name, size_name, quantity, unit_price, line_total, removals, modifiers:order_item_modifiers(option_name))",
+      )
+      .eq("customer_id", customerId);
+    check("Exactly one order is created", orders?.length === 1, JSON.stringify(orders?.length));
+    const o = orders?.[0];
+    check(
+      "It is a WhatsApp delivery order waiting for acceptance",
+      o?.status === "awaiting_acceptance" && o.source === "whatsapp" && o.order_type === "delivery" && o.payment_method === "cod",
+      JSON.stringify(o),
+    );
+    check("Totals are correct (subtotal 3,100 + delivery 150 = 3,250)", o?.subtotal === 310000 && o.delivery_fee === 15000 && o.total === 325000, JSON.stringify(o));
+    const pizza = o?.items.find((i) => i.item_name === "Chicken Tikka Pizza");
+    check(
+      "Pizza line keeps size, extra and removal",
+      pizza?.size_name === "Large" &&
+        pizza.unit_price === 200000 &&
+        pizza.removals.includes("Onion") &&
+        pizza.modifiers.some((m) => m.option_name === "Extra Cheese"),
+      JSON.stringify(pizza),
+    );
+    check("Customer name was saved and used", o?.customer_name === "Sana", JSON.stringify(o?.customer_name));
+    check(
+      "Reply has the order number",
+      r3.orderCreated?.orderNumber === o?.order_number && (r3.replyText ?? "").includes(`#${o?.order_number}`),
+      r3.replyText ?? "",
+    );
+    check("No risk flag below the high-value limit", !o?.risk_flag, String(o?.risk_flag));
+    const { count } = await admin.from("ai_logs").select("id", { count: "exact", head: true }).eq("restaurant_id", t.restaurantId);
+    check("Every AI turn is logged", (count ?? 0) === 2, String(count));
+  } catch (err) {
+    check("Scripted bot conversation ran", false, err instanceof Error ? err.stack ?? err.message : String(err));
+  }
+}
