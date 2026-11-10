@@ -30,6 +30,8 @@ export type BoardOrder = {
   holdReason: string | null;
   /** Fake orders + refused deliveries by this customer before. */
   riskCount: number;
+  /** Set by the bot, e.g. "New customer, high value — call to confirm." */
+  riskFlag: string | null;
   createdAt: string;
   acceptedAt: string | null;
   readyAt: string | null;
@@ -49,7 +51,7 @@ export type LiveSnapshot = {
 };
 
 const BOARD_SELECT =
-  "id, order_number, branch_id, status, order_type, source, customer_name, area, table_number, total, payment_method, payment_status, is_on_hold, hold_reason, created_at, accepted_at, ready_at, dispatched_at, version, items:order_items(item_name, size_name, quantity, is_cancelled), customer:customers(cancelled_count, refused_count)";
+  "id, order_number, branch_id, status, order_type, source, customer_name, area, table_number, total, payment_method, payment_status, is_on_hold, hold_reason, risk_flag, created_at, accepted_at, ready_at, dispatched_at, version, items:order_items(item_name, size_name, quantity, is_cancelled), customer:customers(cancelled_count, refused_count)";
 
 type BoardRow = {
   id: string;
@@ -66,6 +68,7 @@ type BoardRow = {
   payment_status: PaymentStatus;
   is_on_hold: boolean;
   hold_reason: string | null;
+  risk_flag: string | null;
   created_at: string;
   accepted_at: string | null;
   ready_at: string | null;
@@ -97,6 +100,7 @@ function toBoardOrder(r: BoardRow): BoardOrder {
     isOnHold: r.is_on_hold,
     holdReason: r.hold_reason,
     riskCount: (r.customer?.cancelled_count ?? 0) + (r.customer?.refused_count ?? 0),
+    riskFlag: r.risk_flag,
     createdAt: r.created_at,
     acceptedAt: r.accepted_at,
     readyAt: r.ready_at,
