@@ -39,6 +39,81 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_logs: {
+        Row: {
+          cache_read_tokens: number
+          cache_write_tokens: number
+          created_at: string
+          error: string | null
+          error_type: string | null
+          estimated_cost: number
+          id: string
+          input_text: string | null
+          input_tokens: number
+          latency_ms: number
+          model: string | null
+          output_tokens: number
+          provider: string | null
+          reply_text: string | null
+          restaurant_id: string
+          session_id: string | null
+          tool_calls: Json
+        }
+        Insert: {
+          cache_read_tokens?: number
+          cache_write_tokens?: number
+          created_at?: string
+          error?: string | null
+          error_type?: string | null
+          estimated_cost?: number
+          id?: string
+          input_text?: string | null
+          input_tokens?: number
+          latency_ms?: number
+          model?: string | null
+          output_tokens?: number
+          provider?: string | null
+          reply_text?: string | null
+          restaurant_id: string
+          session_id?: string | null
+          tool_calls?: Json
+        }
+        Update: {
+          cache_read_tokens?: number
+          cache_write_tokens?: number
+          created_at?: string
+          error?: string | null
+          error_type?: string | null
+          estimated_cost?: number
+          id?: string
+          input_text?: string | null
+          input_tokens?: number
+          latency_ms?: number
+          model?: string | null
+          output_tokens?: number
+          provider?: string | null
+          reply_text?: string | null
+          restaurant_id?: string
+          session_id?: string | null
+          tool_calls?: Json
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_logs_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_logs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bot_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_logs: {
         Row: {
           action: string
@@ -76,6 +151,130 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "audit_logs_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bot_sessions: {
+        Row: {
+          branch_id: string
+          cart: Json
+          conversation_id: string | null
+          created_at: string
+          customer_id: string | null
+          delivery_address_text: string | null
+          delivery_area: string | null
+          delivery_landmark: string | null
+          failed_attempts: number
+          handoff_reason: string | null
+          id: string
+          language: string
+          last_activity_at: string
+          latitude: number | null
+          longitude: number | null
+          order_id: string | null
+          order_type: string | null
+          payment_method: string | null
+          restaurant_id: string
+          stage: string
+          status: string
+          summary_hash: string | null
+          transcript: Json
+          updated_at: string
+        }
+        Insert: {
+          branch_id: string
+          cart?: Json
+          conversation_id?: string | null
+          created_at?: string
+          customer_id?: string | null
+          delivery_address_text?: string | null
+          delivery_area?: string | null
+          delivery_landmark?: string | null
+          failed_attempts?: number
+          handoff_reason?: string | null
+          id?: string
+          language?: string
+          last_activity_at?: string
+          latitude?: number | null
+          longitude?: number | null
+          order_id?: string | null
+          order_type?: string | null
+          payment_method?: string | null
+          restaurant_id: string
+          stage?: string
+          status?: string
+          summary_hash?: string | null
+          transcript?: Json
+          updated_at?: string
+        }
+        Update: {
+          branch_id?: string
+          cart?: Json
+          conversation_id?: string | null
+          created_at?: string
+          customer_id?: string | null
+          delivery_address_text?: string | null
+          delivery_area?: string | null
+          delivery_landmark?: string | null
+          failed_attempts?: number
+          handoff_reason?: string | null
+          id?: string
+          language?: string
+          last_activity_at?: string
+          latitude?: number | null
+          longitude?: number | null
+          order_id?: string | null
+          order_type?: string | null
+          payment_method?: string | null
+          restaurant_id?: string
+          stage?: string
+          status?: string
+          summary_hash?: string | null
+          transcript?: Json
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bot_sessions_branch_id_restaurant_id_fkey"
+            columns: ["branch_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "bot_sessions_conversation_id_restaurant_id_fkey"
+            columns: ["conversation_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_conversations"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "bot_sessions_customer_id_restaurant_id_fkey"
+            columns: ["customer_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "customers"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "bot_sessions_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "bot_sessions_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "bot_sessions_restaurant_id_fkey"
             columns: ["restaurant_id"]
             isOneToOne: false
             referencedRelation: "restaurants"
@@ -189,6 +388,7 @@ export type Database = {
           auto_accept_orders: boolean
           city: string | null
           created_at: string
+          default_delivery_fee: number
           default_prep_minutes: number
           id: string
           is_active: boolean
@@ -196,6 +396,7 @@ export type Database = {
           late_order_minutes: number
           latitude: number | null
           longitude: number | null
+          minimum_order: number
           name: string
           opening_hours: Json | null
           phone: string | null
@@ -210,6 +411,7 @@ export type Database = {
           auto_accept_orders?: boolean
           city?: string | null
           created_at?: string
+          default_delivery_fee?: number
           default_prep_minutes?: number
           id?: string
           is_active?: boolean
@@ -217,6 +419,7 @@ export type Database = {
           late_order_minutes?: number
           latitude?: number | null
           longitude?: number | null
+          minimum_order?: number
           name: string
           opening_hours?: Json | null
           phone?: string | null
@@ -231,6 +434,7 @@ export type Database = {
           auto_accept_orders?: boolean
           city?: string | null
           created_at?: string
+          default_delivery_fee?: number
           default_prep_minutes?: number
           id?: string
           is_active?: boolean
@@ -238,6 +442,7 @@ export type Database = {
           late_order_minutes?: number
           latitude?: number | null
           longitude?: number | null
+          minimum_order?: number
           name?: string
           opening_hours?: Json | null
           phone?: string | null
@@ -324,6 +529,7 @@ export type Database = {
           name: string | null
           notes: string | null
           phone: string
+          preferred_language: string | null
           refused_count: number
           restaurant_id: string
           tags: string[]
@@ -343,6 +549,7 @@ export type Database = {
           name?: string | null
           notes?: string | null
           phone: string
+          preferred_language?: string | null
           refused_count?: number
           restaurant_id: string
           tags?: string[]
@@ -362,6 +569,7 @@ export type Database = {
           name?: string | null
           notes?: string | null
           phone?: string
+          preferred_language?: string | null
           refused_count?: number
           restaurant_id?: string
           tags?: string[]
@@ -1013,6 +1221,7 @@ export type Database = {
           ready_at: string | null
           restaurant_id: string
           rider_id: string | null
+          risk_flag: string | null
           scheduled_for: string | null
           service_charge: number
           source: Database["public"]["Enums"]["order_source"]
@@ -1061,6 +1270,7 @@ export type Database = {
           ready_at?: string | null
           restaurant_id: string
           rider_id?: string | null
+          risk_flag?: string | null
           scheduled_for?: string | null
           service_charge?: number
           source: Database["public"]["Enums"]["order_source"]
@@ -1109,6 +1319,7 @@ export type Database = {
           ready_at?: string | null
           restaurant_id?: string
           rider_id?: string | null
+          risk_flag?: string | null
           scheduled_for?: string | null
           service_charge?: number
           source?: Database["public"]["Enums"]["order_source"]
@@ -1242,10 +1453,12 @@ export type Database = {
         Row: {
           bill_footer: string | null
           bill_header: string | null
+          bot_enabled: boolean
           city: string | null
           created_at: string
           created_by: string | null
           currency: string
+          high_value_cod_threshold: number
           id: string
           logo_url: string | null
           name: string
@@ -1262,10 +1475,12 @@ export type Database = {
         Insert: {
           bill_footer?: string | null
           bill_header?: string | null
+          bot_enabled?: boolean
           city?: string | null
           created_at?: string
           created_by?: string | null
           currency?: string
+          high_value_cod_threshold?: number
           id?: string
           logo_url?: string | null
           name: string
@@ -1282,10 +1497,12 @@ export type Database = {
         Update: {
           bill_footer?: string | null
           bill_header?: string | null
+          bot_enabled?: boolean
           city?: string | null
           created_at?: string
           created_by?: string | null
           currency?: string
+          high_value_cod_threshold?: number
           id?: string
           logo_url?: string | null
           name?: string
