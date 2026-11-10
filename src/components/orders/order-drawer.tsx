@@ -206,6 +206,9 @@ export function OrderDrawer({
             <PaymentBadge payment={paymentKindOf(shown.payment_method, shown.payment_status)} size="md" />
           </div>
 
+          {shown.risk_flag ? (
+            <Alert title="Check before accepting">{shown.risk_flag}</Alert>
+          ) : null}
           {shown.is_on_hold ? (
             <Alert tone="info" title="On hold">
               {shown.hold_reason}
