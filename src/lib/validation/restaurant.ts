@@ -72,6 +72,9 @@ export const restaurantProfileSchema = z.object({
 
 export const branchSchema = branchFieldsSchema.extend({
   isActive: z.boolean().default(true),
+  // Temporary simple delivery setup (paisa) until delivery zones (Phase 9).
+  deliveryFee: z.number().int("Use whole paisa").min(0, "Can't be negative").max(10_000_000, "Too high").default(0),
+  minimumOrder: z.number().int("Use whole paisa").min(0, "Can't be negative").max(100_000_000, "Too high").default(0),
 });
 export type BranchInput = z.input<typeof branchSchema>;
 
