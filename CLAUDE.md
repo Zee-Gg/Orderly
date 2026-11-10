@@ -102,6 +102,17 @@ Users: restaurant owner, manager, staff (cashier/order taker), kitchen, rider, a
 - Real API check of every send helper: `npm run whatsapp:send-test -- <slug> --to <number that messaged in the last 24h>`.
 - E2E never calls Meta: Playwright starts a fake Graph API (`e2e/mock-graph.ts`, port 3999) and runs the app with `WHATSAPP_GRAPH_BASE_URL` pointing at it. Never set that variable in production.
 
+## AI order bot (Phase 7A-1) — engine + playground
+- Provider-agnostic via the Vercel AI SDK (`ai` v7, `generateText` + tools, `stopWhen: isStepCount(6)`). Switch with `AI_PROVIDER=google|anthropic|groq` (+ that provider's key); models, limits, cost rates in `src/lib/bot/config.ts` (`BOT_MODEL_<PROVIDER>` overrides). Keys are server-only.
+- `runBotTurn()` in `src/lib/bot/agent.ts` is THE entry point (no Next.js imports). It loads the session (2h idle → abandoned → new), handles blocked customers / bot off / handed-off chats / Confirm & Cancel buttons WITHOUT the AI, calls the model, saves the session once, logs every AI turn to `ai_logs`. Rate limit or "provider busy" → one retry, then a friendly fallback + handoff. Never throws for AI problems.
+- The AI only acts through tools (`src/lib/bot/tools/`, registry in `index.ts`): each validates input with Zod, runs our code, and returns `{ ok, ... }` or `{ ok: false, error: CODE, message }`. Prices ONLY from the pricing engine (`store.priceLine` = `resolveCartItem`); orders ONLY through the order engine (`store.createOrder`, source whatsapp, status awaiting_acceptance, idempotency key `bot-<session>-<summary hash>`).
+- The AI sees short refs (items `I3`, sizes `S2`, choices `O5`, cart lines `L1`) — `menu-index.ts` maps them to real ids. Never show refs to customers (the eval fails on leaks).
+- CODE writes the summary, confirmation, cancel, fallback and blocked texts (`texts.ts`, 3 languages); the AI never rewrites prices. `confirm_order` only works in `awaiting_confirmation` and when the re-priced cart still matches `summary_hash`; any change after the summary needs a new summary.
+- DB access goes through `BotStore` (`store.ts`; in-memory fake `testing/memory-store.ts` with the demo menu + real `priceCartItem` for unit tests).
+- Prompt (`prompt.ts`): static rules + compact menu first (cacheable; Anthropic gets cache markers, Google caches implicitly), then the dynamic state. Menus over 150 items rely on `search_menu`.
+- Playground: `/dev/bot-playground` (development only + super admin). Orders it creates are real and show on /orders.
+- Eval: `npm run eval:bot [-- --provider google|anthropic|groq] [--only id,category] [--verbose]` runs `tests/bot-eval/cases.json` against a throwaway restaurant with the demo menu (`src/lib/menu/demo-menu.ts`) and the REAL AI; report in `test-results/`. Keep it at 90%+; add a case for every bot bug.
+
 ## Tests
 - `npm test` (vitest, pure logic) · `npm run test:rls` (database security + engine against the real DB) · `npm run test:e2e` (Playwright, uses installed Chrome; needs `npm run build` first) · `npm run test:all` runs all three.
 
