@@ -281,6 +281,24 @@ Webhooks use the admin client (no user session) and must always scope writes by 
 
 ---
 
+## Phase 7A — AI order bot ✅ (engine + playground; WhatsApp hookup is 7A-2)
+Migrations `20261114100000_bot.sql`, `20261114100100_branch_fee_grants.sql`.
+
+### `bot_sessions` ✅
+id, restaurant_id, branch_id, conversation_id (null for playground sessions), customer_id, status (active, awaiting_confirmation, completed, abandoned, handed_off), stage (collecting_items, choosing_order_type, collecting_address, choosing_payment, collecting_name, awaiting_confirmation, done), cart jsonb (lines from the pricing engine, each with `lineId` "L1"…; see `CartLine` in `src/lib/bot/types.ts`), order_type (delivery/pickup), delivery_address_text, delivery_area, delivery_landmark, latitude, longitude, payment_method (cod/card_on_delivery), language (roman_urdu/english/urdu), failed_attempts, summary_hash, order_id, handoff_reason, transcript jsonb (last 40 customer/bot texts), last_activity_at, timestamps.
+At most one open session per WhatsApp chat (partial unique index). No activity for 2 hours → abandoned; the next message starts a new session. Front of house reads; only the server writes.
+
+### `ai_logs` ✅
+id, restaurant_id, session_id, input_text, tool_calls jsonb, reply_text, provider, model, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, estimated_cost (USD numeric, rates in `src/lib/bot/config.ts`), latency_ms, error_type (rate_limit / timeout / error — rate limits counted separately), error, created_at. Owner + super admin read; only the server writes.
+
+### Columns added
+- `customers.preferred_language` (roman_urdu/english/urdu) — remembered by the bot.
+- `branches.default_delivery_fee`, `branches.minimum_order` (paisa) — temporary simple delivery setup until delivery zones (Phase 9); edited in /settings/branches. The minimum applies to delivery orders.
+- `restaurants.bot_enabled` (default true), `restaurants.high_value_cod_threshold` (paisa, default Rs 5,000).
+- `orders.risk_flag` — set by the server only, e.g. "New customer, high value — call to confirm." (new customer + cash on delivery + total above the threshold). Shown on the order card and drawer.
+
+---
+
 ## Phase 7 — Payments (records only, no gateways in MVP)
 
 ### `payments`
