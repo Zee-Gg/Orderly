@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, MapPin, PauseCircle, TriangleAlert, Utensils } from "lucide-react";
+import { Check, Clock, MapPin, PauseCircle, PhoneCall, TriangleAlert, Utensils } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -97,6 +97,11 @@ export function OrderCard({
           {order.riskCount > 0 ? (
             <Badge tone="danger-outline" shape="square" icon={<TriangleAlert />}>
               Fake order risk · {order.riskCount} refused before
+            </Badge>
+          ) : null}
+          {order.riskFlag ? (
+            <Badge tone="danger-outline" shape="square" icon={<PhoneCall />}>
+              {order.riskFlag}
             </Badge>
           ) : null}
           {order.isOnHold ? (
