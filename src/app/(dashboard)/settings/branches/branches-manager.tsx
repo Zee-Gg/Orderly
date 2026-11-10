@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Clock, MapPin, Pencil, Phone, Plus } from "lucide-react";
+import { Bike, Clock, MapPin, Pencil, Phone, Plus } from "lucide-react";
 import { OpeningHoursEditor } from "@/components/restaurant/opening-hours-editor";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -11,10 +11,12 @@ import { Card } from "@/components/ui/card";
 import { Drawer } from "@/components/ui/drawer";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Input } from "@/components/ui/input";
+import { MoneyInput } from "@/components/ui/money-input";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/components/ui/toast";
 import { createBranch, setBranchOpen, updateBranch } from "@/lib/branches/actions";
+import { formatPKR, paisaToInput, parseRupees } from "@/lib/money";
 import { DEFAULT_OPENING_HOURS, summarizeOpeningHours, type OpeningHours } from "@/lib/opening-hours";
 
 export type BranchRow = {
@@ -27,9 +29,25 @@ export type BranchRow = {
   isOpen: boolean;
   isActive: boolean;
   openingHours: OpeningHours;
+  /** Paisa. */
+  deliveryFee: number;
+  minimumOrder: number;
 };
 
-type FormValues = Omit<BranchRow, "id" | "isOpen">;
+/** Money fields are edited as rupee text and converted on save. */
+type FormValues = Omit<BranchRow, "id" | "isOpen" | "deliveryFee" | "minimumOrder"> & { deliveryFee: string; minimumOrder: string };
+
+const toForm = (b: BranchRow): FormValues => ({
+  name: b.name,
+  address: b.address,
+  area: b.area,
+  city: b.city,
+  phone: b.phone,
+  isActive: b.isActive,
+  openingHours: b.openingHours,
+  deliveryFee: paisaToInput(b.deliveryFee),
+  minimumOrder: paisaToInput(b.minimumOrder),
+});
 
 function BranchForm({
   initial,
@@ -52,8 +70,18 @@ function BranchForm({
 
   function save() {
     setFormError(null);
+    const deliveryFee = values.deliveryFee.trim() ? parseRupees(values.deliveryFee) : 0;
+    const minimumOrder = values.minimumOrder.trim() ? parseRupees(values.minimumOrder) : 0;
+    if (deliveryFee === null || minimumOrder === null) {
+      setErrors({
+        ...(deliveryFee === null ? { deliveryFee: "Enter an amount like 150" } : {}),
+        ...(minimumOrder === null ? { minimumOrder: "Enter an amount like 500" } : {}),
+      });
+      return;
+    }
+    const input = { ...values, deliveryFee, minimumOrder };
     startSaving(async () => {
-      const result = branchId ? await updateBranch(branchId, values) : await createBranch(values);
+      const result = branchId ? await updateBranch(branchId, input) : await createBranch(input);
       if (!result.ok) {
         setFormError(result.error);
         setErrors(result.fieldErrors ?? {});
@@ -89,6 +117,22 @@ function BranchForm({
         placeholder="0300-1234567"
         error={errors.phone}
       />
+      <div className="grid grid-cols-2 gap-3">
+        <MoneyInput
+          label="Delivery fee"
+          value={values.deliveryFee}
+          onChange={(e) => set("deliveryFee", e.target.value)}
+          placeholder="0"
+          error={errors.deliveryFee}
+        />
+        <MoneyInput
+          label="Minimum order for delivery"
+          value={values.minimumOrder}
+          onChange={(e) => set("minimumOrder", e.target.value)}
+          placeholder="0"
+          error={errors.minimumOrder}
+        />
+      </div>
       <div>
         <h3 className="mb-3 text-base font-bold">Opening hours</h3>
         <OpeningHoursEditor
@@ -157,6 +201,8 @@ export function BranchesManager({
     phone: "",
     isActive: true,
     openingHours: DEFAULT_OPENING_HOURS,
+    deliveryFee: "",
+    minimumOrder: "",
   };
 
   return (
@@ -197,6 +243,11 @@ export function BranchesManager({
                   <Clock aria-hidden className="mt-0.5 size-4 shrink-0" />
                   {summarizeOpeningHours(b.openingHours)}
                 </li>
+                <li className="flex gap-2">
+                  <Bike aria-hidden className="mt-0.5 size-4 shrink-0" />
+                  Delivery fee {formatPKR(b.deliveryFee)}
+                  {b.minimumOrder ? ` · minimum order ${formatPKR(b.minimumOrder)}` : ""}
+                </li>
               </ul>
               <div className="mt-3 flex items-center justify-between gap-3 border-t border-line pt-3">
                 <OpenSwitch branch={b} />
@@ -217,7 +268,7 @@ export function BranchesManager({
         {editing ? (
           <BranchForm
             key={editing === "new" ? "new" : editing.id}
-            initial={editing === "new" ? newValues : editing}
+            initial={editing === "new" ? newValues : toForm(editing)}
             branchId={editing === "new" ? null : editing.id}
             onDone={() => setEditing(null)}
           />
