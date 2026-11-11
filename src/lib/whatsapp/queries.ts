@@ -12,6 +12,10 @@ export type InboxConversation = {
   lastMessageAt: string | null;
   preview: string | null;
   status: "open" | "resolved";
+  /** false = the bot handed this chat to staff ("Needs staff"). */
+  botEnabled: boolean;
+  handoffReason: string | null;
+  handedOffAt: string | null;
 };
 
 export type InboxMessage = {
@@ -32,7 +36,7 @@ export async function listConversations(restaurantId: string): Promise<InboxConv
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("whatsapp_conversations")
-    .select("id, wa_id, last_message_at, last_message_preview, status, customer:customers(name, phone)")
+    .select("id, wa_id, last_message_at, last_message_preview, status, bot_enabled, handoff_reason, handed_off_at, customer:customers(name, phone)")
     .eq("restaurant_id", restaurantId)
     .order("last_message_at", { ascending: false, nullsFirst: false })
     .limit(100);
@@ -45,6 +49,9 @@ export async function listConversations(restaurantId: string): Promise<InboxConv
     lastMessageAt: c.last_message_at,
     preview: c.last_message_preview,
     status: c.status,
+    botEnabled: c.bot_enabled,
+    handoffReason: c.handoff_reason,
+    handedOffAt: c.handed_off_at,
   }));
 }
 
