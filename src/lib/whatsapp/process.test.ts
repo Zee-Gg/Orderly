@@ -1,26 +1,15 @@
 import { describe, expect, it, vi } from "vitest";
 import { isOpenAt, type OpeningHours } from "@/lib/opening-hours";
-import { buildGreeting } from "./greeting";
 import { createMemoryStore } from "./memory-store";
 import { parseWebhookPayload } from "./payload";
 import { processWebhookPayload } from "./process";
-import type { GreetingContext } from "./store";
 
 const PHONE_NUMBER_ID = "123456789";
 // Sunday 8 Nov 2026, 3 PM in Karachi
 const NOW = Date.parse("2026-11-08T10:00:00Z");
-const HOUR = 3600_000;
 
 const everyDay = (open: string, close: string) =>
   Object.fromEntries(["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((d) => [d, { closed: false, open, close }])) as OpeningHours;
-
-const greeting: GreetingContext = {
-  restaurantName: "Tandoori Junction",
-  phone: "+923001234567",
-  timezone: "Asia/Karachi",
-  branchIsOpen: true,
-  openingHours: everyDay("12:00", "02:00"),
-};
 
 function textPayload(id: string, body = "Menu bhejein", from = "923331112222", ts = NOW / 1000) {
   return {
@@ -54,7 +43,6 @@ function statusPayload(id: string, status: string) {
 function setup(now = () => NOW) {
   const mem = createMemoryStore({
     now,
-    greeting,
     accounts: [{ id: "a1", restaurantId: "r1", branchId: null, phoneNumberId: PHONE_NUMBER_ID, isActive: true, accessTokenEncrypted: "x" }],
   });
   let n = 0;
@@ -91,35 +79,41 @@ describe("parseWebhookPayload", () => {
 });
 
 describe("processWebhookPayload", () => {
-  it("saves a message, creates the customer, and greets once", async () => {
-    const { mem, fetch, deps } = setup();
-    const s = await processWebhookPayload(deps, textPayload("wamid.A"));
-    expect(s).toMatchObject({ saved: 1, duplicates: 0, autoReplies: 1, errors: [] });
+  it("saves a message, creates the customer, and hands the chat to the bot once", async () => {
+    const { mem, deps } = setup();
+    const onInbound = vi.fn(async () => {});
+    const s = await processWebhookPayload({ ...deps, onInbound }, textPayload("wamid.A"));
+    expect(s).toMatchObject({ saved: 1, duplicates: 0, botRuns: 1, errors: [] });
     expect(mem.customers).toEqual([expect.objectContaining({ phone: "+923331112222", name: "Ayesha" })]);
-    expect(fetch).toHaveBeenCalledTimes(1);
-    const reply = mem.messages.find((m) => m.direction === "outbound")!;
-    expect(reply.body).toContain("*Tandoori Junction* mein khush aamdeed");
+    const saved = mem.messages.find((m) => m.direction === "inbound")!;
+    expect(onInbound).toHaveBeenCalledWith({ restaurantId: "r1", branchId: null, conversationId: saved.conversationId, messageId: saved.id });
   });
 
-  it("skips duplicate deliveries of the same message (no second save, no second reply)", async () => {
-    const { mem, fetch, deps } = setup();
-    await processWebhookPayload(deps, textPayload("wamid.DUP"));
-    const again = await processWebhookPayload(deps, textPayload("wamid.DUP"));
-    expect(again).toMatchObject({ saved: 0, duplicates: 1, autoReplies: 0 });
+  it("skips duplicate deliveries of the same message (no second save, no second bot run)", async () => {
+    const { mem, deps } = setup();
+    const onInbound = vi.fn(async () => {});
+    await processWebhookPayload({ ...deps, onInbound }, textPayload("wamid.DUP"));
+    const again = await processWebhookPayload({ ...deps, onInbound }, textPayload("wamid.DUP"));
+    expect(again).toMatchObject({ saved: 0, duplicates: 1, botRuns: 0 });
     expect(mem.messages.filter((m) => m.direction === "inbound")).toHaveLength(1);
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(onInbound).toHaveBeenCalledTimes(1);
   });
 
-  it("greets at most once every 6 hours per conversation", async () => {
-    let now = NOW;
-    const { fetch, deps } = setup(() => now);
-    await processWebhookPayload(deps, textPayload("m1", "hi", undefined, now / 1000));
-    now += 2 * HOUR;
-    await processWebhookPayload(deps, textPayload("m2", "hello?", undefined, now / 1000));
-    expect(fetch).toHaveBeenCalledTimes(1);
-    now += 5 * HOUR;
-    await processWebhookPayload(deps, textPayload("m3", "salam", undefined, now / 1000));
-    expect(fetch).toHaveBeenCalledTimes(2);
+  it("several messages of one chat in one delivery → one bot run with the newest", async () => {
+    const { mem, deps } = setup();
+    const onInbound = vi.fn(async () => {});
+    const p = textPayload("m1", "2 zinger");
+    (p.entry[0].changes[0].value.messages as unknown[]).push({ from: "923331112222", id: "m2", timestamp: "1", type: "text", text: { body: "aur coke" } });
+    await processWebhookPayload({ ...deps, onInbound }, p);
+    expect(onInbound).toHaveBeenCalledTimes(1);
+    const newest = mem.messages.find((m) => m.waMessageId === "m2")!;
+    expect(onInbound).toHaveBeenCalledWith(expect.objectContaining({ messageId: newest.id }));
+  });
+
+  it("a failing bot never breaks webhook processing", async () => {
+    const { deps } = setup();
+    const s = await processWebhookPayload({ ...deps, onInbound: async () => { throw new Error("AI down"); } }, textPayload("wamid.F"));
+    expect(s).toMatchObject({ saved: 1, botRuns: 0, errors: ["bot: AI down"] });
   });
 
   it("ignores numbers that are not connected", async () => {
@@ -143,6 +137,8 @@ describe("processWebhookPayload", () => {
   it("updates outbound status forward only", async () => {
     const { mem, deps } = setup();
     await processWebhookPayload(deps, textPayload("wamid.in"));
+    const conversationId = mem.messages[0].conversationId;
+    await mem.store.insertOutbound({ restaurantId: "r1", conversationId, body: "Hi", status: "sent", waMessageId: "wamid.out1" });
     const reply = mem.messages.find((m) => m.direction === "outbound")!;
     await processWebhookPayload(deps, statusPayload(reply.waMessageId!, "read"));
     expect(reply.status).toBe("read");
@@ -153,22 +149,7 @@ describe("processWebhookPayload", () => {
   });
 });
 
-describe("greeting and opening hours", () => {
-  it("open: says the AI assistant is coming and gives the phone", () => {
-    const text = buildGreeting(greeting, new Date(NOW));
-    expect(text).toContain("Abhi order ke liye call karein: 0300-1234567");
-    expect(text).toContain("Welcome to Tandoori Junction");
-  });
-
-  it("closed by the switch or by the hours: says so and lists hours", () => {
-    const closedSwitch = buildGreeting({ ...greeting, branchIsOpen: false }, new Date(NOW));
-    expect(closedSwitch).toContain("we're closed right now");
-    expect(closedSwitch).toContain("Every day: 12 PM – 2 AM (next day)");
-    // 8 AM Karachi = 03:00 UTC: outside 12:00–02:00
-    const early = buildGreeting(greeting, new Date("2026-11-08T03:00:00Z"));
-    expect(early).toContain("we're closed right now");
-  });
-
+describe("opening hours", () => {
   it("isOpenAt handles closing after midnight", () => {
     const hours = everyDay("12:00", "02:00");
     expect(isOpenAt(hours, new Date("2026-11-08T20:30:00Z"), "Asia/Karachi")).toBe(true); // 1:30 AM Mon
