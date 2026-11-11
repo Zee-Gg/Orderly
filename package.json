@@ -18,6 +18,7 @@
     "whatsapp:send-test": "tsx scripts/whatsapp-send-test.ts",
     "eval:bot": "tsx scripts/eval-bot.ts",
     "export:corrections": "tsx scripts/export-ai-corrections.ts",
+    "eval:voice": "tsx scripts/eval-voice.ts",
     "test:e2e": "playwright test",
     "test:all": "npm test && npm run test:rls && npm run test:e2e"
   },
@@ -34,6 +35,7 @@
     "clsx": "^2.1.1",
     "libphonenumber-js": "^1.13.15",
     "lucide-react": "^1.70.0",
+    "music-metadata": "^12.4.0",
     "next": "16.4.5",
     "qrcode": "^1.5.4",
     "react": "19.3.0",
