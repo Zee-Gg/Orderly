@@ -4,16 +4,23 @@
  *
  *   npm run whatsapp:fake                         # temp restaurant, checks, cleans up
  *   npm run whatsapp:fake -- <slug>               # use a connected restaurant (data stays → see /inbox)
- *   npm run whatsapp:fake -- <slug> --from 923001234567   # also receive the greeting on your own WhatsApp
+ *   npm run whatsapp:fake -- <slug> --from 923001234567   # also receive the bot's reply on your own WhatsApp
+ *   npm run whatsapp:fake -- --conversation       # full bot chats (temp restaurant with the demo menu)
  *   --url http://localhost:3000                   # where the app runs (default)
  *
- * Checks: bad signature rejected · text message saved · duplicate ignored ·
- * auto-reply attempted once · status updates (delivered → read) applied.
+ * Checks (default): bad signature rejected · text message saved · duplicate ignored ·
+ * bot replied once · status updates (delivered → read) applied.
+ *
+ * --conversation plays full chats: an order with buttons + location pin +
+ * Confirm (exactly one correct order), batching, handoff, flood limit, voice
+ * note. Start the app with BOT_FAKE_AI=1 for exact checks (no real AI):
+ *   PowerShell:  $env:BOT_FAKE_AI="1"; npm run dev
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "../src/types/database";
 import { encryptToken } from "../src/lib/whatsapp/crypto";
 import { signPayload } from "../src/lib/whatsapp/signature";
+import { runBotConversations } from "./lib/whatsapp-conversation";
 
 process.loadEnvFile(".env.local");
 
@@ -127,6 +134,20 @@ async function createTempRestaurant() {
 
 async function main() {
   console.log(`Fake WhatsApp webhook → ${endpoint}`);
+  if (args.includes("--conversation")) {
+    const reachable = await fetch(endpoint, { method: "GET" }).then((r) => r.status).catch(() => 0);
+    if (!reachable) throw new Error(`Cannot reach ${endpoint}. Is the app running (npm run dev)?`);
+    console.log("Conversation mode (temporary restaurant with the demo menu; exact with BOT_FAKE_AI=1 on the server)");
+    await runBotConversations({
+      admin,
+      endpoint,
+      appSecret: appSecret!,
+      supabase: { url: supabaseUrl, publishableKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY! },
+      check,
+      log: (line) => console.log(`  ${line}`),
+    });
+    return;
+  }
   let temp: Awaited<ReturnType<typeof createTempRestaurant>> | null = null;
   let restaurantId: string;
   let phoneNumberId: string;
@@ -150,7 +171,7 @@ async function main() {
     console.log("Using a temporary restaurant (removed at the end)");
   }
 
-  // Default sender: a fictional number, so a real person never gets a greeting.
+  // Default sender: a fictional number, so a real person never gets a reply.
   const from = (flag("--from") ?? (slug ? "15555550123" : "923009990123")).replace(/\D/g, "");
   const wamid = `wamid.FAKE${RUN}${Math.random().toString(36).slice(2, 8)}`;
 
@@ -196,12 +217,12 @@ async function main() {
       .eq("direction", "outbound")
       .gte("created_at", new Date(Date.now() - 60_000).toISOString());
     check(
-      `Auto-reply attempted once (status: ${reply?.status ?? "none"}${reply?.error ? ` — ${reply.error}` : ""})`,
+      `Bot replied once (status: ${reply?.status ?? "none"}${reply?.error ? ` — ${reply.error}` : ""})`,
       !!reply && (replies ?? 0) <= 1,
       { reply, replies },
     );
     if (reply && reply.status !== "sent") {
-      console.log("        (Expected with a fake token or a number outside the test recipients. The greeting text is saved.)");
+      console.log("        (Expected with a fake token or a number outside the test recipients. The reply text is saved.)");
     }
 
     // Status updates need an outbound message with a wa_message_id.
