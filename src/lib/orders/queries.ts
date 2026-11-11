@@ -32,6 +32,8 @@ export type BoardOrder = {
   riskCount: number;
   /** Set by the bot, e.g. "New customer, high value — call to confirm." */
   riskFlag: string | null;
+  /** Placed by the AI bot (WhatsApp, no staff member). */
+  fromBot: boolean;
   createdAt: string;
   acceptedAt: string | null;
   readyAt: string | null;
@@ -43,15 +45,19 @@ export type BranchOrderSettings = Record<string, { name: string; acceptAlertMinu
 
 export type LiveStats = { ordersToday: number; salesToday: number; pending: number };
 
+/** WhatsApp chats the bot handed to staff (bot switched off for the chat). */
+export type NeedsStaffChat = { id: string; name: string | null; phone: string | null; reason: string | null; at: string };
+
 export type LiveSnapshot = {
   orders: BoardOrder[];
   stats: LiveStats;
+  needsStaff: NeedsStaffChat[];
   settings: BranchOrderSettings;
   fetchedAt: string;
 };
 
 const BOARD_SELECT =
-  "id, order_number, branch_id, status, order_type, source, customer_name, area, table_number, total, payment_method, payment_status, is_on_hold, hold_reason, risk_flag, created_at, accepted_at, ready_at, dispatched_at, version, items:order_items(item_name, size_name, quantity, is_cancelled), customer:customers(cancelled_count, refused_count)";
+  "id, order_number, branch_id, status, order_type, source, customer_name, area, table_number, total, payment_method, payment_status, is_on_hold, hold_reason, risk_flag, created_by, created_at, accepted_at, ready_at, dispatched_at, version, items:order_items(item_name, size_name, quantity, is_cancelled), customer:customers(cancelled_count, refused_count)";
 
 type BoardRow = {
   id: string;
@@ -69,6 +75,7 @@ type BoardRow = {
   is_on_hold: boolean;
   hold_reason: string | null;
   risk_flag: string | null;
+  created_by: string | null;
   created_at: string;
   accepted_at: string | null;
   ready_at: string | null;
@@ -101,6 +108,7 @@ function toBoardOrder(r: BoardRow): BoardOrder {
     holdReason: r.hold_reason,
     riskCount: (r.customer?.cancelled_count ?? 0) + (r.customer?.refused_count ?? 0),
     riskFlag: r.risk_flag,
+    fromBot: r.source === "whatsapp" && r.created_by === null,
     createdAt: r.created_at,
     acceptedAt: r.accepted_at,
     readyAt: r.ready_at,
@@ -120,7 +128,7 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
   const tz = ctx.restaurant.timezone || DEFAULT_TIMEZONE;
   const { start, end } = todayRange(tz);
 
-  const [board, today, branches] = await Promise.all([
+  const [board, today, branches, chats] = await Promise.all([
     supabase
       .from("orders")
       .select(BOARD_SELECT)
@@ -142,6 +150,15 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
       .from("branches")
       .select("id, name, accept_alert_minutes, late_order_minutes")
       .in("id", branchIds),
+    // RLS: front of house only (kitchen gets none).
+    supabase
+      .from("whatsapp_conversations")
+      .select("id, handoff_reason, handed_off_at, wa_id, customer:customers(name, phone)")
+      .eq("restaurant_id", ctx.restaurant.id)
+      .eq("bot_enabled", false)
+      .not("handed_off_at", "is", null)
+      .order("handed_off_at", { ascending: false })
+      .limit(20),
   ]);
   if (board.error) throw board.error;
   if (today.error) throw today.error;
@@ -150,6 +167,13 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
   const counted = (today.data ?? []).filter((o) => o.status !== "cancelled" && o.status !== "failed");
   return {
     orders,
+    needsStaff: (chats.data ?? []).map((c) => ({
+      id: c.id,
+      name: c.customer?.name ?? null,
+      phone: c.customer?.phone ?? `+${c.wa_id}`,
+      reason: c.handoff_reason,
+      at: c.handed_off_at!,
+    })),
     stats: {
       ordersToday: counted.length,
       salesToday: counted.reduce((sum, o) => sum + o.total, 0),
@@ -240,7 +264,7 @@ export async function getOrderDetail(ctx: CurrentContext, orderId: string) {
   if (error) throw error;
   if (!order) return null;
 
-  const [{ data: events }, { data: payments }] = await Promise.all([
+  const [{ data: events }, { data: payments }, { data: chat }] = await Promise.all([
     supabase
       .from("order_events")
       .select("id, event_type, from_status, to_status, actor_type, actor_user_id, data, created_at")
@@ -251,6 +275,17 @@ export async function getOrderDetail(ctx: CurrentContext, orderId: string) {
       .select("id, method, amount, status, reference, verified_by, verified_at, created_at")
       .eq("order_id", orderId)
       .order("created_at"),
+    // The WhatsApp chat with this customer (RLS: front of house only).
+    order.source === "whatsapp" && order.customer_id
+      ? supabase
+          .from("whatsapp_conversations")
+          .select("id")
+          .eq("restaurant_id", ctx.restaurant.id)
+          .eq("customer_id", order.customer_id)
+          .order("last_message_at", { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
   ]);
 
   const actorIds = [
@@ -269,6 +304,8 @@ export async function getOrderDetail(ctx: CurrentContext, orderId: string) {
     events: (events ?? []).map((e) => ({ ...e, actorName: e.actor_user_id ? (names.get(e.actor_user_id) ?? "Staff") : null })),
     payments: (payments ?? []).map((p) => ({ ...p, verifiedByName: p.verified_by ? (names.get(p.verified_by) ?? "Staff") : null })),
     timezone: ctx.restaurant.timezone || DEFAULT_TIMEZONE,
+    fromBot: order.source === "whatsapp" && order.created_by === null,
+    conversationId: chat?.id ?? null,
   };
 }
 export type OrderDetail = NonNullable<Awaited<ReturnType<typeof getOrderDetail>>>;
