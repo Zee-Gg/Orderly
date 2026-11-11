@@ -1128,6 +1128,45 @@ async function botChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser,
   check("Owner can switch the bot off and set the high-value limit", !bot.error && bot.data.length === 1, JSON.stringify(bot));
   const bBot = await ownerB.client.from("restaurants").update({ bot_enabled: true }).eq("id", restA.id).select("id");
   check("Restaurant B cannot switch the bot of A", bBot.error !== null || bBot.data?.length === 0, JSON.stringify(bBot));
+
+  section("Bot on WhatsApp: corrections, budget, lock");
+  const budget = await ownerA.client.from("restaurants").update({ ai_monthly_budget_usd: 1000 }).eq("id", restA.id).select("id");
+  check("Owners cannot set their own AI budget (super admin only)", budget.error !== null, JSON.stringify(budget));
+  const lock = await ownerA.client.rpc("bot_claim_conversation", { p_conversation_id: sess.data!.id, p_ttl_seconds: 60 });
+  check("Users cannot call bot_claim_conversation", lock.error !== null, JSON.stringify(lock));
+  const usage = await ownerA.client.rpc("ai_usage_summary", { p_since: new Date(0).toISOString() });
+  check("Users cannot call ai_usage_summary", usage.error !== null, JSON.stringify(usage));
+  const svcUsage = await admin.rpc("ai_usage_summary", { p_since: new Date(0).toISOString(), p_restaurant_id: restA.id });
+  check("Server can read AI usage per restaurant", !svcUsage.error && svcUsage.data?.[0]?.input_tokens !== undefined, JSON.stringify(svcUsage));
+  const { data: convA } = await admin.from("whatsapp_conversations").select("id").eq("restaurant_id", restA.id).limit(1).maybeSingle();
+  if (convA) {
+    const claim1 = await admin.rpc("bot_claim_conversation", { p_conversation_id: convA.id, p_ttl_seconds: 60 });
+    const claim2 = await admin.rpc("bot_claim_conversation", { p_conversation_id: convA.id, p_ttl_seconds: 60 });
+    check("Chat lock: only one bot turn at a time", claim1.data === true && claim2.data === false, JSON.stringify({ claim1, claim2 }));
+    await admin.from("whatsapp_conversations").update({ bot_lock_until: null }).eq("id", convA.id);
+    const resume = await ownerA.client
+      .from("whatsapp_conversations")
+      .update({ bot_enabled: true, handoff_reason: null })
+      .eq("id", convA.id)
+      .select("id");
+    check("Staff can't switch a chat's bot directly (only via the server action)", resume.error !== null || resume.data?.length === 0, JSON.stringify(resume));
+  }
+  if (anyOrder) {
+    const corr = await admin
+      .from("ai_corrections")
+      .insert({ restaurant_id: restA.id, order_id: anyOrder.id, session_id: sess.data!.id, before: { lines: [] }, after: { lines: [{ item: "Zinger" }] } })
+      .select("id")
+      .single();
+    check("Server can save an AI correction", !corr.error, JSON.stringify(corr.error));
+    const ownCorr = await ownerA.client.from("ai_corrections").select("id").eq("restaurant_id", restA.id);
+    const bCorr = await ownerB.client.from("ai_corrections").select("id").eq("restaurant_id", restA.id);
+    const kCorr = await kitchenA.client.from("ai_corrections").select("id");
+    check("Owner A can read their AI corrections", !ownCorr.error && ownCorr.data.length === 1, JSON.stringify(ownCorr));
+    check("Restaurant B cannot read the AI corrections of A", !bCorr.error && bCorr.data.length === 0, JSON.stringify(bCorr));
+    check("Kitchen cannot read AI corrections", (kCorr.data?.length ?? 0) === 0, JSON.stringify(kCorr));
+    const insCorr = await ownerA.client.from("ai_corrections").insert({ restaurant_id: restA.id, order_id: anyOrder.id, before: {}, after: {} });
+    check("Nobody writes AI corrections from the browser", insCorr.error !== null, JSON.stringify(insCorr));
+  }
 }
 
 /**
