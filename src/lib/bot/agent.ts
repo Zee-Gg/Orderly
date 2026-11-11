@@ -32,6 +32,10 @@ export type BotTurnInput = {
   buttonId?: string | null;
   /** A WhatsApp location pin: saved as the delivery location before the AI runs. */
   location?: { latitude: number; longitude: number; name?: string | null; address?: string | null } | null;
+  /** Some of the messages are voice-note transcripts (lines starting with "[voice note]"). */
+  voice?: boolean;
+  /** A voice note that couldn't be understood (no AI: counts as "not understood"). */
+  voiceFailed?: boolean;
 };
 
 export type BotTurnResult = {
@@ -185,7 +189,12 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
   // --- Language: follow the script/language of this message; remember it.
   // Only what the customer typed decides the language: not button titles, not
   // our own bracketed notes like "[Customer shared a location pin]".
-  const detected = input.buttonId ? null : detectLanguage(text.replace(/\[[^\]]*\]/g, " "));
+  // Voice transcripts don't count either: Whisper writes Urdu script even when the customer types Roman Urdu.
+  const typed = text
+    .split("\n")
+    .filter((line) => !line.startsWith("[voice note]"))
+    .join("\n");
+  const detected = input.buttonId ? null : detectLanguage(typed.replace(/\[[^\]]*\]/g, " "));
   if (detected) s.language = detected;
   if (customer && detected && customer.preferredLanguage !== detected) {
     await store.setCustomerLanguage(s.restaurantId, customer.id, detected);
@@ -299,6 +308,14 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
     };
     s.summaryHash = null;
     if (s.status === "awaiting_confirmation") s.status = "active";
+  }
+
+  // A voice note nobody could understand: no AI. It counts as "not understood"
+  // (the third time hands the chat to staff).
+  if (input.voiceFailed) {
+    await runTool(ctx, "mark_not_understood", {});
+    const handed = (s as BotSession).status === "handed_off";
+    return finish(handed ? t(s.language).handedOff : t(s.language).voiceUnclear, { handedOff: handed });
   }
 
   // Nothing to sell (menu not set up, or everything hidden): never let the AI
