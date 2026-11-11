@@ -62,6 +62,8 @@ export const PERMISSIONS = {
   "customers.edit": FRONT_OF_HOUSE,
   "customers.block": MANAGEMENT,
   "inbox.access": FRONT_OF_HOUSE,
+  /** Turn the AI bot back on for a chat it handed to staff. */
+  "inbox.bot_toggle": FRONT_OF_HOUSE,
   "reports.view": MANAGEMENT,
   "settings.view": MANAGEMENT,
   "settings.edit": ["owner"],
