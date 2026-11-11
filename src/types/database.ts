@@ -39,6 +39,68 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_corrections: {
+        Row: {
+          after: Json
+          before: Json
+          created_at: string
+          edited_by: string | null
+          id: string
+          order_id: string
+          restaurant_id: string
+          session_id: string | null
+        }
+        Insert: {
+          after: Json
+          before: Json
+          created_at?: string
+          edited_by?: string | null
+          id?: string
+          order_id: string
+          restaurant_id: string
+          session_id?: string | null
+        }
+        Update: {
+          after?: Json
+          before?: Json
+          created_at?: string
+          edited_by?: string | null
+          id?: string
+          order_id?: string
+          restaurant_id?: string
+          session_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_corrections_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "kitchen_orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "ai_corrections_order_id_restaurant_id_fkey"
+            columns: ["order_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "orders"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "ai_corrections_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_corrections_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "bot_sessions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_logs: {
         Row: {
           cache_read_tokens: number
@@ -1451,6 +1513,7 @@ export type Database = {
       }
       restaurants: {
         Row: {
+          ai_monthly_budget_usd: number | null
           bill_footer: string | null
           bill_header: string | null
           bot_enabled: boolean
@@ -1473,6 +1536,7 @@ export type Database = {
           whatsapp_status_messages: Json
         }
         Insert: {
+          ai_monthly_budget_usd?: number | null
           bill_footer?: string | null
           bill_header?: string | null
           bot_enabled?: boolean
@@ -1495,6 +1559,7 @@ export type Database = {
           whatsapp_status_messages?: Json
         }
         Update: {
+          ai_monthly_budget_usd?: number | null
           bill_footer?: string | null
           bill_header?: string | null
           bot_enabled?: boolean
@@ -1578,8 +1643,12 @@ export type Database = {
       whatsapp_conversations: {
         Row: {
           bot_enabled: boolean
+          bot_lock_until: string | null
+          bot_muted_until: string | null
           created_at: string
           customer_id: string | null
+          handed_off_at: string | null
+          handoff_reason: string | null
           id: string
           last_auto_reply_at: string | null
           last_customer_message_at: string | null
@@ -1592,8 +1661,12 @@ export type Database = {
         }
         Insert: {
           bot_enabled?: boolean
+          bot_lock_until?: string | null
+          bot_muted_until?: string | null
           created_at?: string
           customer_id?: string | null
+          handed_off_at?: string | null
+          handoff_reason?: string | null
           id?: string
           last_auto_reply_at?: string | null
           last_customer_message_at?: string | null
@@ -1606,8 +1679,12 @@ export type Database = {
         }
         Update: {
           bot_enabled?: boolean
+          bot_lock_until?: string | null
+          bot_muted_until?: string | null
           created_at?: string
           customer_id?: string | null
+          handed_off_at?: string | null
+          handoff_reason?: string | null
           id?: string
           last_auto_reply_at?: string | null
           last_customer_message_at?: string | null
@@ -1638,6 +1715,7 @@ export type Database = {
       whatsapp_messages: {
         Row: {
           body: string | null
+          bot_handled_at: string | null
           conversation_id: string
           created_at: string
           direction: Database["public"]["Enums"]["wa_direction"]
@@ -1657,6 +1735,7 @@ export type Database = {
         }
         Insert: {
           body?: string | null
+          bot_handled_at?: string | null
           conversation_id: string
           created_at?: string
           direction: Database["public"]["Enums"]["wa_direction"]
@@ -1676,6 +1755,7 @@ export type Database = {
         }
         Update: {
           body?: string | null
+          bot_handled_at?: string | null
           conversation_id?: string
           created_at?: string
           direction?: Database["public"]["Enums"]["wa_direction"]
@@ -1839,9 +1919,24 @@ export type Database = {
       }
     }
     Functions: {
+      ai_usage_summary: {
+        Args: { p_restaurant_id?: string; p_since: string }
+        Returns: {
+          bot_orders: number
+          conversations: number
+          cost: number
+          input_tokens: number
+          output_tokens: number
+          restaurant_id: string
+        }[]
+      }
       apply_price_changes: {
         Args: { p_audit: Json; p_changes: Json; p_restaurant_id: string }
         Returns: number
+      }
+      bot_claim_conversation: {
+        Args: { p_conversation_id: string; p_ttl_seconds?: number }
+        Returns: boolean
       }
       create_order: { Args: { p: Json }; Returns: Json }
       create_restaurant_with_owner: {
