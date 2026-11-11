@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { CheckCircle2, Download, MessageCircle, Printer, XCircle } from "lucide-react";
+import { Bot, CheckCircle2, Download, MessageCircle, Printer, XCircle } from "lucide-react";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
@@ -9,9 +9,11 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonList } from "@/components/ui/skeleton";
 import { can } from "@/lib/auth/permissions";
 import { requirePermission } from "@/lib/auth/session";
+import { getBotOverview } from "@/lib/bot/settings";
 import { formatDateTime } from "@/lib/time";
 import { ORDER_GREETING_TEXT, qrSvg, waMeLink } from "@/lib/whatsapp/links";
 import { getStatusMessageSettings, getWhatsAppNumber } from "@/lib/whatsapp/queries";
+import { BotSettingsForm } from "./bot-settings-form";
 import { StatusMessagesForm } from "./status-messages-form";
 
 export const metadata: Metadata = { title: "WhatsApp" };
@@ -24,6 +26,7 @@ async function WhatsAppSettings() {
     getWhatsAppNumber(ctx.restaurant.id),
     getStatusMessageSettings(ctx.restaurant.id),
   ]);
+  const bot = await getBotOverview(ctx.restaurant.id, ctx.restaurant.timezone);
 
   if (!account) {
     return (
@@ -95,6 +98,37 @@ async function WhatsAppSettings() {
         </Card>
       ) : null}
 
+      <Card padding="lg" className="flex flex-col gap-4" aria-labelledby="bot-title">
+        <div>
+          <h2 id="bot-title" className="flex items-center gap-2 text-lg font-bold">
+            <Bot aria-hidden className="size-5" /> AI order bot
+          </h2>
+          <p className="text-sm text-muted">
+            Answers customers in Roman Urdu, English and Urdu, takes the order and sends it to you to accept. When it can&apos;t
+            help, it hands the chat to your staff (you&apos;ll see “Needs staff” in Inbox).
+          </p>
+        </div>
+        {bot.overBudget ? (
+          <Alert title="AI budget used up for this month">
+            New WhatsApp chats go straight to your staff until next month. Contact Orderly support to raise the limit.
+          </Alert>
+        ) : null}
+        <dl className="grid grid-cols-2 gap-3">
+          <div className="rounded-control bg-subtle p-3">
+            <dt className="text-sm text-muted">Bot chats today</dt>
+            <dd className="text-2xl font-bold">{bot.conversationsToday}</dd>
+          </div>
+          <div className="rounded-control bg-subtle p-3">
+            <dt className="text-sm text-muted">Orders by the bot today</dt>
+            <dd className="text-2xl font-bold">{bot.botOrdersToday}</dd>
+          </div>
+        </dl>
+        <BotSettingsForm
+          initial={{ botEnabled: bot.botEnabled, highValueCodThreshold: bot.highValueCodThreshold }}
+          canEdit={can(ctx.role, "settings.edit")}
+        />
+      </Card>
+
       <Card padding="lg" className="flex flex-col gap-3" aria-labelledby="status-title">
         <div>
           <h2 id="status-title" className="text-lg font-bold">Order updates to customers</h2>
@@ -109,10 +143,6 @@ async function WhatsAppSettings() {
         <StatusMessagesForm initial={statusMessages} canEdit={can(ctx.role, "settings.edit")} />
       </Card>
 
-      <Alert tone="info" title="Automatic greeting">
-        Customers who message this number get a short welcome reply (once every 6 hours) with your phone number, or your
-        opening hours when you are closed. Ordering by chat comes soon. See all chats in Inbox.
-      </Alert>
     </div>
   );
 }
