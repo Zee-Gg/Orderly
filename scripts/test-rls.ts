@@ -1129,6 +1129,15 @@ async function botChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser,
   const bBot = await ownerB.client.from("restaurants").update({ bot_enabled: true }).eq("id", restA.id).select("id");
   check("Restaurant B cannot switch the bot of A", bBot.error !== null || bBot.data?.length === 0, JSON.stringify(bBot));
 
+  section("Voice notes: transcripts are written by the server only");
+  const { data: anyMsg } = await admin.from("whatsapp_messages").select("id").eq("restaurant_id", restA.id).limit(1).maybeSingle();
+  if (anyMsg) {
+    const tr = await ownerA.client.from("whatsapp_messages").update({ transcript: "forged" }).eq("id", anyMsg.id).select("id");
+    check("Staff cannot change a voice transcript", tr.error !== null || tr.data?.length === 0, JSON.stringify(tr));
+  }
+  const tlog = await ownerA.client.from("ai_logs").insert({ restaurant_id: restA.id, type: "transcription", input_text: "x" });
+  check("Nobody logs transcriptions from the browser", tlog.error !== null, JSON.stringify(tlog));
+
   section("Bot on WhatsApp: corrections, budget, lock");
   const budget = await ownerA.client.from("restaurants").update({ ai_monthly_budget_usd: 1000 }).eq("id", restA.id).select("id");
   check("Owners cannot set their own AI budget (super admin only)", budget.error !== null, JSON.stringify(budget));
