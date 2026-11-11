@@ -2,7 +2,7 @@ import { after, type NextRequest } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Json } from "@/types/database";
 import { consoleProcessLog, processWebhookPayload } from "@/lib/whatsapp/process";
-import { whatsappDeps } from "@/lib/whatsapp/server";
+import { whatsappBotHook, whatsappDeps } from "@/lib/whatsapp/server";
 import { safeEqual, verifyWebhookSignature } from "@/lib/whatsapp/signature";
 
 /**
@@ -71,7 +71,7 @@ export async function POST(request: NextRequest) {
   after(async () => {
     let errorText: string | null = null;
     try {
-      const summary = await processWebhookPayload(whatsappDeps(), payload, consoleProcessLog);
+      const summary = await processWebhookPayload({ ...whatsappDeps(), onInbound: whatsappBotHook() }, payload, consoleProcessLog);
       const { errors, ...counts } = summary;
       console.log("[whatsapp] done", JSON.stringify({ eventId: event.id, ...counts, errors: errors.length }));
       errorText = summary.errors.length ? summary.errors.join("\n").slice(0, 2000) : null;
