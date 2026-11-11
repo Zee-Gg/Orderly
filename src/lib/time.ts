@@ -46,6 +46,11 @@ export function todayRange(timeZone: string = DEFAULT_TIMEZONE, now: Date = new 
   return { start, end: startOfLocalDay(next, timeZone), ymd };
 }
 
+/** Start of this month in the restaurant's time zone (AI budget, usage). */
+export function monthStart(timeZone: string = DEFAULT_TIMEZONE, now: Date = new Date()): Date {
+  return startOfLocalDay(`${localDate(now, timeZone).slice(0, 7)}-01`, timeZone);
+}
+
 /** [start, end) for an inclusive local date range "from"–"to" (YYYY-MM-DD). */
 export function localDateRange(from: string, to: string, timeZone: string = DEFAULT_TIMEZONE) {
   const [y, m, d] = to.split("-").map(Number);
