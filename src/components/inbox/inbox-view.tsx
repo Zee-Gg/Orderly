@@ -241,6 +241,12 @@ function Media({ message: m }: { message: InboxMessage }) {
           <Mic aria-hidden className="size-4" /> Voice note
         </p>
         <audio controls preload="none" src={src} onError={retry} className="h-11 w-64 max-w-full" aria-label="Voice note" />
+        {m.transcript ? (
+          <p dir="auto" className={cn("text-sm", URDU.test(m.transcript) && "font-urdu leading-loose")}>
+            <span className="mr-1 inline-block rounded-control bg-subtle px-1.5 text-xs font-semibold text-muted">🎤 transcribed</span>
+            {m.transcript}
+          </p>
+        ) : null}
       </div>
     );
   }
