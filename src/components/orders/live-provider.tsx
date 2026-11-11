@@ -13,7 +13,7 @@ import {
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/toast";
 import { fetchLiveSnapshotAction } from "@/lib/orders/actions";
-import type { BoardOrder, LiveSnapshot } from "@/lib/orders/queries";
+import type { BoardOrder, LiveSnapshot, NeedsStaffChat } from "@/lib/orders/queries";
 import { SOURCE_LABELS } from "@/lib/orders/constants";
 import { formatPKR } from "@/lib/money";
 import { useLiveRefresh, type RealtimeState } from "@/lib/realtime/use-live-refresh";
@@ -80,6 +80,7 @@ export function OrdersLiveProvider({
   const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   const known = useRef(new Set(initial.orders.filter((o) => o.status === "awaiting_acceptance").map((o) => o.id)));
+  const knownChats = useRef(new Set(initial.needsStaff.map((c) => c.id)));
   const inFlight = useRef<Promise<void> | null>(null);
   const soundOnRef = useRef(false);
 
@@ -115,6 +116,24 @@ export function OrdersLiveProvider({
     [router, toast],
   );
 
+  // A WhatsApp chat the bot handed to staff: sound + toast that opens the chat.
+  const announceChats = useCallback(
+    (fresh: NeedsStaffChat[]) => {
+      if (!fresh.length) return;
+      if (soundOnRef.current) playChime(true);
+      for (const c of fresh.slice(0, 3)) {
+        toast({
+          title: "Customer needs staff",
+          description: `${c.name ?? c.phone ?? "WhatsApp customer"}${c.reason ? ` · ${c.reason}` : ""}`,
+          tone: "error",
+          duration: 12000,
+          action: { label: "Open chat", onClick: () => router.push(`/inbox?c=${c.id}`) },
+        });
+      }
+    },
+    [router, toast],
+  );
+
   const refresh = useCallback(async () => {
     if (inFlight.current) return inFlight.current;
     const run = (async () => {
@@ -125,16 +144,22 @@ export function OrdersLiveProvider({
       known.current = new Set(awaiting.map((o) => o.id));
       setSnapshot(result.data);
       announce(fresh);
+      const chats = result.data.needsStaff ?? [];
+      const freshChats = chats.filter((c) => !knownChats.current.has(c.id));
+      knownChats.current = new Set(chats.map((c) => c.id));
+      announceChats(freshChats);
     })().finally(() => {
       inFlight.current = null;
     });
     inFlight.current = run;
     return run;
-  }, [announce]);
+  }, [announce, announceChats]);
 
   // Realtime + polling fallback + catch-up (shared with the kitchen screen).
   const filter = branchIds.length === 1 ? `branch_id=eq.${branchIds[0]}` : `restaurant_id=eq.${restaurantId}`;
   const { realtime, online } = useLiveRefresh({ table: "orders", filter, refresh });
+  // Bot handoffs ("Needs staff") come from WhatsApp conversations, not orders.
+  useLiveRefresh({ table: "whatsapp_conversations", filter: `restaurant_id=eq.${restaurantId}`, refresh });
 
   // Clock for "x min ago", urgent and late.
   useEffect(() => {
