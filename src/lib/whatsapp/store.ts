@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database, Json } from "@/types/database";
+import type { Database } from "@/types/database";
 import { MEDIA_BUCKET } from "./config";
 import type { InboundMessage, StatusUpdate, WaMessageStatus } from "./payload";
 
@@ -69,14 +69,6 @@ export type OrderMessageContext = {
   statusMessages: Record<string, unknown>;
 };
 
-export type GreetingContext = {
-  restaurantName: string;
-  phone: string | null;
-  timezone: string;
-  branchIsOpen: boolean;
-  openingHours: unknown;
-};
-
 export interface WhatsAppStore {
   findAccountByPhoneNumberId(phoneNumberId: string): Promise<AccountRecord | null>;
   findAccountByRestaurant(restaurantId: string): Promise<AccountRecord | null>;
@@ -86,8 +78,6 @@ export interface WhatsAppStore {
   insertOutbound(row: OutboundRow): Promise<string>;
   /** Moves a message forward only (sent → delivered → read). Returns true if a row changed. */
   applyStatus(restaurantId: string, update: StatusUpdate): Promise<boolean>;
-  claimAutoReply(conversationId: string, cooldownHours: number): Promise<boolean>;
-  getGreetingContext(restaurantId: string, branchId: string | null): Promise<GreetingContext | null>;
   getOrderMessageContext(restaurantId: string, orderId: string): Promise<OrderMessageContext | null>;
   /** Upload to the private media bucket (path = {restaurant_id}/...). */
   uploadMedia(path: string, bytes: Uint8Array, mimeType: string): Promise<void>;
@@ -223,41 +213,6 @@ export function createSupabaseStore(db: Db): WhatsAppStore {
         .select("id");
       if (error) throw new Error(`status update: ${error.message}`);
       return (data?.length ?? 0) > 0;
-    },
-
-    async claimAutoReply(conversationId, cooldownHours) {
-      const { data, error } = await db.rpc("whatsapp_claim_auto_reply", {
-        p_conversation_id: conversationId,
-        p_cooldown: `${cooldownHours} hours`,
-      });
-      if (error) throw new Error(`claim auto reply: ${error.message}`);
-      return data === true;
-    },
-
-    async getGreetingContext(restaurantId, branchId) {
-      const { data: restaurant } = await db
-        .from("restaurants")
-        .select("name, phone, timezone")
-        .eq("id", restaurantId)
-        .maybeSingle();
-      if (!restaurant) return null;
-      let query = db
-        .from("branches")
-        .select("id, phone, is_open, opening_hours")
-        .eq("restaurant_id", restaurantId)
-        .eq("is_active", true)
-        .order("created_at")
-        .limit(1);
-      if (branchId) query = query.eq("id", branchId);
-      const { data: branches } = await query;
-      const branch = branches?.[0];
-      return {
-        restaurantName: restaurant.name,
-        phone: branch?.phone || restaurant.phone || null,
-        timezone: restaurant.timezone,
-        branchIsOpen: branch?.is_open ?? false,
-        openingHours: (branch?.opening_hours ?? null) as Json,
-      };
     },
 
     async getOrderMessageContext(restaurantId, orderId) {
