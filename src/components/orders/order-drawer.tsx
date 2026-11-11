@@ -6,6 +6,7 @@ import {
   Ban,
   Banknote,
   Bike,
+  Bot,
   Check,
   ExternalLink,
   MapPin,
@@ -203,8 +204,21 @@ export function OrderDrawer({
             <StatusBadge status={shown.status} size="md" />
             <OrderTypeBadge type={shown.order_type} size="md" />
             <SourceBadge source={shown.source} size="md" />
+            {shown.fromBot ? (
+              <Badge tone="brand" shape="square" size="md" icon={<Bot />}>
+                AI order
+              </Badge>
+            ) : null}
             <PaymentBadge payment={paymentKindOf(shown.payment_method, shown.payment_status)} size="md" />
           </div>
+          {shown.conversationId ? (
+            <Link
+              href={`/inbox?c=${shown.conversationId}`}
+              className="flex min-h-touch items-center gap-2 self-start font-semibold text-brand-700 underline"
+            >
+              <MessageCircle aria-hidden className="size-4" /> Open WhatsApp chat
+            </Link>
+          ) : null}
 
           {shown.risk_flag ? (
             <Alert title="Check before accepting">{shown.risk_flag}</Alert>
