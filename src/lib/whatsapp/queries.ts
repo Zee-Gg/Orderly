@@ -30,6 +30,8 @@ export type InboxMessage = {
   mediaUrl: string | null;
   mediaMimeType: string | null;
   orderId: string | null;
+  /** Voice notes: what the customer said (Phase 7B). */
+  transcript: string | null;
 };
 
 export async function listConversations(restaurantId: string): Promise<InboxConversation[]> {
@@ -60,7 +62,7 @@ export async function listMessages(restaurantId: string, conversationId: string)
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("whatsapp_messages")
-    .select("id, direction, type, body, status, error, created_at, media_url, media_mime_type, order_id")
+    .select("id, direction, type, body, status, error, created_at, media_url, media_mime_type, order_id, transcript")
     .eq("restaurant_id", restaurantId)
     .eq("conversation_id", conversationId)
     .order("created_at", { ascending: false })
@@ -87,6 +89,7 @@ export async function listMessages(restaurantId: string, conversationId: string)
     mediaUrl: m.media_url ? (m.media_url.startsWith("https://") ? m.media_url : (signed.get(m.media_url) ?? null)) : null,
     mediaMimeType: m.media_mime_type,
     orderId: m.order_id,
+    transcript: m.transcript,
   }));
 }
 
