@@ -5,6 +5,7 @@ import { BRANCH_ID, createMemoryBotStore, RESTAURANT_ID } from "../testing/memor
 import type { BotButton } from "../agent";
 import type { BotChannelStore, ChannelConversation, PendingMessage } from "./channel";
 import { combineMessages, createBotPipeline } from "./pipeline";
+import type { VoiceOutcome } from "../voice/handle";
 
 type Step = { tools?: { name: string; input: unknown }[]; text?: string };
 
@@ -38,7 +39,7 @@ function scriptedTurns(turns: Step[][]) {
   });
 }
 
-function setup(opts: { budget?: { budget: number | null; spent: number } } = {}) {
+function setup(opts: { budget?: { budget: number | null; spent: number }; voice?: VoiceOutcome } = {}) {
   const m = createMemoryBotStore();
   const customer = m.addCustomer({ name: "Ali", phone: "+923001234567" });
   const conversation: ChannelConversation & { lockUntil: number } = {
@@ -52,13 +53,16 @@ function setup(opts: { budget?: { budget: number | null; spent: number } } = {})
   };
   const messages: (PendingMessage & { handled: boolean })[] = [];
   const handoffs: string[] = [];
+  const transcripts: { id: string; transcript: string; provider: string }[] = [];
+  const voiceHandle = vi.fn(async (): Promise<VoiceOutcome> => opts.voice ?? { kind: "unclear", durationSec: null, result: null, reason: "no voice set" });
   let seq = 0;
   let clock = Date.parse("2026-11-10T12:00:00Z");
 
   const channel: BotChannelStore = {
     getConversation: async () => ({ ...conversation }),
     newestInboundId: async () => messages.at(-1)?.id ?? null,
-    pendingInbound: async () => messages.filter((x) => !x.handled).map((x) => ({ id: x.id, type: x.type, body: x.body, raw: x.raw, createdAt: x.createdAt })),
+    pendingInbound: async () =>
+      messages.filter((x) => !x.handled).map((x) => ({ id: x.id, type: x.type, body: x.body, raw: x.raw, createdAt: x.createdAt, mediaUrl: x.mediaUrl })),
     isHandled: async (id) => messages.find((x) => x.id === id)?.handled ?? true,
     markHandled: async (ids) => messages.forEach((x) => ids.includes(x.id) && (x.handled = true)),
     countInboundSince: async (_c, since) => messages.filter((x) => x.createdAt >= since).length,
@@ -80,6 +84,10 @@ function setup(opts: { budget?: { budget: number | null; spent: number } } = {})
     findOpenSessionId: async () => [...m.sessions.values()].find((s) => ["active", "awaiting_confirmation", "handed_off"].includes(s.status))?.id ?? null,
     defaultBranchId: async () => BRANCH_ID,
     aiBudget: async () => opts.budget ?? { budget: null, spent: 0 },
+    downloadMedia: async (path) => (path === "missing" ? null : new Uint8Array([1, 2, 3])),
+    saveTranscript: async (id, transcript, provider) => {
+      transcripts.push({ id, transcript, provider });
+    },
   };
 
   const sent: { text: string; buttons: string[] | null }[] = [];
@@ -94,9 +102,9 @@ function setup(opts: { budget?: { budget: number | null; spent: number } } = {})
     }),
   };
 
-  const inbound = (body: string | null, type = "text", raw: Record<string, unknown> = {}) => {
+  const inbound = (body: string | null, type = "text", raw: Record<string, unknown> = {}, mediaUrl: string | null = null) => {
     const id = `msg-${++seq}`;
-    messages.push({ id, type, body, raw: raw as never, createdAt: new Date(clock).toISOString(), handled: false });
+    messages.push({ id, type, body, raw: raw as never, createdAt: new Date(clock).toISOString(), handled: false, mediaUrl });
     return id;
   };
   const idx = buildMenuIndex(m.menu);
@@ -108,13 +116,14 @@ function setup(opts: { budget?: { budget: number | null; spent: number } } = {})
       botStore: m.store,
       sender,
       agent: { provider: "google", model: { model, modelId: "mock" }, sleep: async () => {} },
+      voice: { handle: voiceHandle },
       sleep: async (ms) => {
         clock += ms;
       },
       now: () => new Date(clock),
     });
   const trigger = (messageId: string) => ({ restaurantId: RESTAURANT_ID, branchId: BRANCH_ID, conversationId: "conv-1", messageId });
-  return { m, conversation, messages, handoffs, sent, sender, inbound, ref, make, trigger };
+  return { m, conversation, messages, handoffs, sent, sender, inbound, ref, make, trigger, transcripts, voiceHandle };
 }
 
 describe("combineMessages", () => {
@@ -125,7 +134,8 @@ describe("combineMessages", () => {
         { ...base, id: "1", type: "text", body: "2 zinger" },
         { ...base, id: "2", type: "text", body: "aur ek coke" },
       ]),
-    ).toEqual({ texts: ["2 zinger", "aur ek coke"], buttonId: null, location: null, mediaOnly: false });
+    ).toEqual({ texts: ["2 zinger", "aur ek coke"], buttonId: null, location: null, mediaOnly: false, voice: false, voiceTooLong: false, voiceFailed: false });
+    expect(combineMessages([{ ...base, id: "1", type: "voice", body: "دو زنگر" }])).toMatchObject({ texts: ["[voice note] دو زنگر"], voice: true });
     expect(
       combineMessages([{ ...base, id: "1", type: "interactive", body: "🛵 Delivery", raw: { interactive: { button_reply: { id: "order_type_delivery", title: "🛵 Delivery" } } } }]),
     ).toMatchObject({ texts: ["🛵 Delivery"], buttonId: "order_type_delivery" });
@@ -193,12 +203,66 @@ describe("bot pipeline", () => {
     expect(s.m.logs[0].inputText).toContain("location pin");
   });
 
-  it("images and voice notes get a polite 'please type' reply, no AI", async () => {
+  it("photos and documents still get a polite 'please type' reply, no AI", async () => {
     const s = setup();
     const model = scriptedTurns([[{ text: "x" }]]);
-    await s.make(model).handleInbound(s.trigger(s.inbound(null, "audio")));
+    await s.make(model).handleInbound(s.trigger(s.inbound(null, "image", {}, "rest/img.jpg")));
     expect(model.doGenerateCalls).toHaveLength(0);
     expect(s.sent).toEqual([{ text: "Abhi sirf text messages samajh sakta hoon, please type kar dein 🙏", buttons: null }]);
+  });
+
+  const voiceOk = (transcript: string): VoiceOutcome => ({
+    kind: "ok",
+    transcript,
+    durationSec: 3.2,
+    converted: false,
+    result: { ok: true, text: transcript, unclear: false, provider: "groq", model: "whisper-large-v3", keySource: "groq", latencyMs: 300, estimatedCost: 0, note: null },
+  });
+
+  it("voice note + a text sent together → ONE bot turn, marked as voice; transcript saved", async () => {
+    const s = setup({ voice: voiceOk("دو زنگر برگر") });
+    const model = scriptedTurns([
+      [{ tools: [{ name: "add_to_cart", input: { item_id: s.ref("Zinger Burger"), quantity: 2 } }] }, { text: "🎤 Aap ne kaha: 2 Zinger Burger. Theek hai?" }],
+    ]);
+    const voiceId = s.inbound(null, "audio", {}, "rest/voice.ogg");
+    const textId = s.inbound("aur jaldi bhejna");
+    await s.make(model).handleInbound(s.trigger(voiceId)); // older: the newest handles the batch
+    await s.make(model).handleInbound(s.trigger(textId));
+    expect(s.m.logs.filter((l) => (l.type ?? "chat") === "chat")).toHaveLength(1);
+    expect(s.m.logs.at(-1)?.inputText).toBe("[voice note] دو زنگر برگر\naur jaldi bhejna");
+    expect(s.transcripts).toEqual([{ id: voiceId, transcript: "دو زنگر برگر", provider: "groq" }]);
+    expect(s.sent.at(-1)?.text.startsWith("🎤 Aap ne kaha:")).toBe(true);
+    // The Urdu-script transcript must not switch a Roman Urdu customer to Urdu script.
+    expect([...s.m.sessions.values()][0].language).toBe("roman_urdu");
+  });
+
+  it("voice note over 2 minutes → 'send a shorter one', no AI", async () => {
+    const s = setup({ voice: { kind: "too_long", durationSec: 150 } });
+    const model = scriptedTurns([[{ text: "x" }]]);
+    await s.make(model).handleInbound(s.trigger(s.inbound(null, "audio", {}, "rest/long.ogg")));
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(s.sent).toEqual([{ text: "Thora chota voice note bhejein ya type kar dein 🙏", buttons: null }]);
+  });
+
+  it("unclear voice notes → 'samajh nahi aaya'; the third one hands off to staff", async () => {
+    const s = setup({ voice: { kind: "unclear", durationSec: 0.4, result: null, reason: "No clear speech" } });
+    const model = scriptedTurns([[{ text: "x" }]]);
+    const p = s.make(model);
+    await p.handleInbound(s.trigger(s.inbound(null, "audio", {}, "rest/a.ogg")));
+    expect(s.sent.at(-1)?.text).toBe("Maazrat, voice note samajh nahi aaya. Dobara bhejein ya type kar dein 🙏");
+    await p.handleInbound(s.trigger(s.inbound(null, "audio", {}, "rest/b.ogg")));
+    expect([...s.m.sessions.values()][0].failedAttempts).toBe(2);
+    await p.handleInbound(s.trigger(s.inbound(null, "audio", {}, "rest/c.ogg")));
+    expect(model.doGenerateCalls).toHaveLength(0);
+    expect(s.conversation.botEnabled).toBe(false);
+    expect(s.sent.at(-1)?.text).toBe("Aap ki baat staff se karwa raha hoon, thori der mein jawab milega 🙏");
+  });
+
+  it("a voice note whose audio is missing counts as not understood", async () => {
+    const s = setup({ voice: voiceOk("never used") });
+    await s.make(scriptedTurns([[{ text: "x" }]])).handleInbound(s.trigger(s.inbound(null, "audio", {}, "missing")));
+    expect(s.voiceHandle).not.toHaveBeenCalled();
+    expect(s.sent.at(-1)?.text).toContain("voice note samajh nahi aaya");
   });
 
   it("handoff switches the bot off for the chat and tells the customer", async () => {
