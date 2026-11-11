@@ -122,6 +122,8 @@ export type BotOrderInput = {
 };
 
 export type AiLogRow = {
+  /** chat = a bot turn; transcription = a voice note turned into text. Default chat. */
+  type?: "chat" | "transcription";
   restaurantId: string;
   sessionId: string | null;
   inputText: string;
