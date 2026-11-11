@@ -71,6 +71,13 @@ describe("runBotTurn", () => {
     expect(saved?.transcript.map((e) => e.role)).toEqual(["customer", "bot"]);
   });
 
+  it("never shows internal refs (I3, S2, L1) to the customer", async () => {
+    const { ref, turn } = await setup();
+    const raita = ref("Raita");
+    const r = await turn(["ek biryani"], scripted([{ text: `Biryani add! Saath mein Raita (${raita}) lenge? Ya ${raita} nahi?` }]));
+    expect(r.replyText).toBe("Biryani add! Saath mein Raita lenge? Ya Raita nahi?");
+  });
+
   it("sends the summary written by code, never the model's version", async () => {
     const { ref, turn } = await setup();
     const model = scripted([
