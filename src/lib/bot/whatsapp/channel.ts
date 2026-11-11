@@ -18,10 +18,15 @@ export type ChannelConversation = {
 
 export type PendingMessage = {
   id: string;
+  /** WhatsApp type, or our own after voice handling: voice | voice_too_long | voice_failed. */
   type: string;
   body: string | null;
   raw: Json;
   createdAt: string;
+  /** Storage path of a downloaded voice note / photo (Phase 6B). */
+  mediaUrl?: string | null;
+  /** Saved transcript of a voice note (Phase 7B). */
+  transcript?: string | null;
 };
 
 export interface BotChannelStore {
@@ -39,6 +44,9 @@ export interface BotChannelStore {
   /** bot_enabled = false + reason → "Needs staff" in the dashboard. */
   setHandoff(restaurantId: string, conversationId: string, reason: string): Promise<void>;
   findOpenSessionId(restaurantId: string, conversationId: string): Promise<string | null>;
+  /** A downloaded voice note from the private media bucket (null if missing). */
+  downloadMedia(path: string): Promise<Uint8Array | null>;
+  saveTranscript(messageId: string, transcript: string, provider: string): Promise<void>;
   /** First active branch (when the WhatsApp account has no default branch). */
   defaultBranchId(restaurantId: string): Promise<string | null>;
   /** This month's AI cost (USD) and the restaurant's monthly budget (null = no limit). */
@@ -87,7 +95,7 @@ export function createSupabaseChannelStore(db: Db): BotChannelStore {
       const rows = check(
         await db
           .from("whatsapp_messages")
-          .select("id, type, body, raw, created_at")
+          .select("id, type, body, raw, created_at, media_url, transcript")
           .eq("restaurant_id", restaurantId)
           .eq("conversation_id", conversationId)
           .eq("direction", "inbound")
@@ -96,7 +104,15 @@ export function createSupabaseChannelStore(db: Db): BotChannelStore {
           .limit(30),
         "pending messages",
       );
-      return (rows ?? []).map((m) => ({ id: m.id, type: m.type, body: m.body, raw: m.raw, createdAt: m.created_at }));
+      return (rows ?? []).map((m) => ({
+        id: m.id,
+        type: m.type,
+        body: m.body,
+        raw: m.raw,
+        createdAt: m.created_at,
+        mediaUrl: m.media_url,
+        transcript: m.transcript,
+      }));
     },
 
     async isHandled(messageId) {
@@ -159,6 +175,19 @@ export function createSupabaseChannelStore(db: Db): BotChannelStore {
         "open session",
       );
       return r?.id ?? null;
+    },
+
+    async downloadMedia(path) {
+      const { data, error } = await db.storage.from("whatsapp-media").download(path);
+      if (error || !data) return null;
+      return new Uint8Array(await data.arrayBuffer());
+    },
+
+    async saveTranscript(messageId, transcript, provider) {
+      check(
+        await db.from("whatsapp_messages").update({ transcript: transcript.slice(0, 4000), transcribe_provider: provider }).eq("id", messageId),
+        "save transcript",
+      );
     },
 
     async defaultBranchId(restaurantId) {
