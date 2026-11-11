@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
-import { Bot, ExternalLink, Play, RotateCcw, Send, ShoppingCart, Wrench } from "lucide-react";
+import { Bot, ExternalLink, Mic, Play, RotateCcw, Send, ShoppingCart, Wrench } from "lucide-react";
+import { MicRecorder } from "@/components/bot/mic-recorder";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,13 +19,27 @@ import {
   sendPlaygroundMessageAction,
   startPlaygroundAction,
   type PlaygroundCustomer,
-  type PlaygroundSession,
-  type PlaygroundTurn,
 } from "@/lib/bot/playground-actions";
+import type { PlaygroundSession, PlaygroundTurn, PlaygroundVoice } from "@/lib/bot/playground-shared";
 import type { BotButton } from "@/lib/bot/agent";
 
 type RestaurantOption = { id: string; name: string; branches: { id: string; name: string; isOpen: boolean }[] };
-type ChatEntry = { role: "customer" | "bot" | "system"; text: string; buttons?: BotButton[] | null };
+type ChatEntry = {
+  role: "customer" | "bot" | "system";
+  text: string;
+  buttons?: BotButton[] | null;
+  /** A recorded voice note (blob URL) and what the transcriber heard. */
+  audioUrl?: string;
+  transcript?: string | null;
+  voiceKey?: string;
+};
+
+const KEY_LABEL: Record<string, string> = {
+  groq: "Groq key",
+  voice: "Google voice key (GOOGLE_TRANSCRIBE_API_KEY)",
+  chat: "Google chat key (fallback: no voice key set)",
+  fake: "fake transcription (tests)",
+};
 
 const URDU = /[؀-ۿ]/;
 
@@ -35,7 +50,18 @@ function withBold(text: string) {
   );
 }
 
-export function BotPlayground({ restaurants }: { restaurants: RestaurantOption[] }) {
+export function BotPlayground({
+  restaurants,
+  voiceProviders,
+  voiceNote,
+}: {
+  restaurants: RestaurantOption[];
+  /** Transcription providers that have a key (groq is hidden without GROQ_API_KEY). */
+  voiceProviders: ("groq" | "google")[];
+  voiceNote: string | null;
+}) {
+  const [voiceProvider, setVoiceProvider] = useState<"groq" | "google">(voiceProviders[0] ?? "google");
+  const [lastVoice, setLastVoice] = useState<(PlaygroundVoice & { botMs: number | null }) | null>(null);
   const [restaurantId, setRestaurantId] = useState(restaurants[0]?.id ?? "");
   const restaurant = restaurants.find((r) => r.id === restaurantId);
   const [branchId, setBranchId] = useState(restaurant?.branches[0]?.id ?? "");
@@ -127,6 +153,67 @@ export function BotPlayground({ restaurants }: { restaurants: RestaurantOption[]
     });
   }
 
+  /** A recorded voice note: same path as WhatsApp (duration → transcription → bot). */
+  function sendVoice(audio: Blob, seconds: number) {
+    if (!session || !customer) return;
+    const key = `v${Date.now()}`;
+    const audioUrl = URL.createObjectURL(audio);
+    setChat((c) => [
+      ...c.map((e) => ({ ...e, buttons: null })),
+      { role: "customer", text: `🎤 Voice note · ${Math.max(1, Math.round(seconds))}s`, audioUrl, transcript: null, voiceKey: key },
+    ]);
+    start(async () => {
+      setError(null);
+      const form = new FormData();
+      form.set("audio", audio, `voice.${audio.type.includes("mp4") ? "m4a" : "webm"}`);
+      form.set("restaurantId", restaurantId);
+      form.set("branchId", branchId);
+      form.set("sessionId", session.id);
+      form.set("customerId", customer.id);
+      form.set("provider", voiceProvider);
+      const res = await fetch("/api/dev/bot-voice", { method: "POST", body: form }).catch(() => null);
+      const body = res ? ((await res.json().catch(() => null)) as { voice?: PlaygroundVoice; turn?: PlaygroundTurn | null; replyText?: string; error?: string } | null) : null;
+      if (!res?.ok || !body?.voice) {
+        setError(body?.error ?? "Couldn't send the voice note.");
+        return;
+      }
+      const voice = body.voice;
+      const t = body.turn ?? null;
+      setLastVoice({ ...voice, botMs: t?.latencyMs ?? null });
+      setChat((c) =>
+        c.map((e) =>
+          e.voiceKey === key
+            ? {
+                ...e,
+                transcript:
+                  voice.kind === "ok" ? voice.transcript : voice.kind === "too_long" ? "(too long — over 2 minutes)" : `(not understood${voice.reason ? `: ${voice.reason}` : ""})`,
+              }
+            : e,
+        ),
+      );
+      if (t) {
+        setLastTurn(t);
+        setSession(t.session);
+        setTotals((x) => ({
+          turns: x.turns + 1,
+          cost: x.cost + t.estimatedCost,
+          latency: x.latency + t.latencyMs,
+          input: x.input + t.usage.input,
+          output: x.output + t.usage.output,
+        }));
+        if (t.orderCreated) setOrders((o) => [t.orderCreated!, ...o]);
+      }
+      const reply = t?.replyText ?? body.replyText ?? null;
+      setChat((c) => [
+        ...c,
+        reply
+          ? { role: "bot", text: reply, buttons: t?.showButtons ?? null }
+          : { role: "system", text: t?.handedOff ? "Handed off to staff — the bot stays quiet in this chat." : "(no reply)" },
+        ...(t?.error ? [{ role: "system" as const, text: `AI ${t.error.type}: ${t.error.message.slice(0, 200)}` }] : []),
+      ]);
+    });
+  }
+
   const subtotal = useMemo(() => session?.cart.reduce((s, l) => s + l.lineTotal, 0) ?? 0, [session]);
 
   return (
@@ -207,16 +294,31 @@ export function BotPlayground({ restaurants }: { restaurants: RestaurantOption[]
                 </p>
               ) : (
                 <div key={i} className={cn("flex flex-col gap-1.5", e.role === "customer" ? "items-end" : "items-start")}>
-                  <p
-                    dir="auto"
-                    className={cn(
-                      "max-w-[85%] whitespace-pre-wrap wrap-break-word rounded-card px-3 py-2 text-sm shadow-card",
-                      e.role === "customer" ? "bg-[#d9fdd3]" : "bg-surface",
-                      URDU.test(e.text) && "font-urdu leading-loose",
-                    )}
-                  >
-                    {withBold(e.text)}
-                  </p>
+                  {e.audioUrl ? (
+                    <div className="flex max-w-[85%] flex-col gap-1 rounded-card bg-[#d9fdd3] px-3 py-2 text-sm shadow-card" data-testid="voice-bubble">
+                      <span className="text-xs font-semibold text-muted">{e.text}</span>
+                      <audio controls src={e.audioUrl} className="h-11 w-64 max-w-full" aria-label="Voice note" />
+                      {e.transcript === null ? (
+                        <span className="text-xs text-muted">Transcribing…</span>
+                      ) : e.transcript ? (
+                        <p dir="auto" className={cn("whitespace-pre-wrap", URDU.test(e.transcript) && "font-urdu leading-loose")}>
+                          <span className="mr-1 text-xs font-semibold text-muted">🎤 transcribed:</span>
+                          <span data-testid="voice-transcript">{e.transcript}</span>
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <p
+                      dir="auto"
+                      className={cn(
+                        "max-w-[85%] whitespace-pre-wrap wrap-break-word rounded-card px-3 py-2 text-sm shadow-card",
+                        e.role === "customer" ? "bg-[#d9fdd3]" : "bg-surface",
+                        URDU.test(e.text) && "font-urdu leading-loose",
+                      )}
+                    >
+                      {withBold(e.text)}
+                    </p>
+                  )}
                   {e.buttons?.length ? (
                     <div className="flex max-w-[85%] flex-wrap gap-1.5">
                       {e.buttons.map((b) => (
@@ -264,10 +366,53 @@ export function BotPlayground({ restaurants }: { restaurants: RestaurantOption[]
             <Button type="submit" icon={<Send />} disabled={!session || pending || !draft.trim()}>
               Send
             </Button>
+            <MicRecorder onRecorded={sendVoice} disabled={!session || pending || !voiceProviders.length} />
           </form>
+          <div className="flex flex-wrap items-center gap-2 border-t border-line bg-surface px-3 py-2 text-xs text-muted">
+            <span className="font-semibold">Voice:</span>
+            {voiceProviders.length ? (
+              <Tabs
+                variant="segmented"
+                aria-label="Voice transcription provider"
+                value={voiceProvider}
+                onValueChange={setVoiceProvider}
+                items={voiceProviders.map((p) => ({ value: p, label: p === "groq" ? "Groq Whisper" : "Google Gemini" }))}
+              />
+            ) : (
+              <span>No transcription key set.</span>
+            )}
+            <span>Hold the mic (or tap to start/stop). The mic works on localhost or HTTPS only.</span>
+            {voiceNote ? <span className="text-status-awaiting-fg">{voiceNote}</span> : null}
+          </div>
         </Card>
 
         <aside className="flex flex-col gap-3" aria-label="Bot state">
+          {lastVoice ? (
+            <Card padding="md" className="flex flex-col gap-1 text-sm" data-testid="voice-panel">
+              <p className="flex items-center gap-2 font-bold">
+                <Mic aria-hidden className="size-4" /> Last voice note
+              </p>
+              <p dir="auto" className={cn(lastVoice.transcript && URDU.test(lastVoice.transcript) && "font-urdu leading-loose")}>
+                {lastVoice.transcript || <span className="text-muted">({lastVoice.kind === "too_long" ? "too long" : "nothing clear"})</span>}
+              </p>
+              <dl className="grid grid-cols-[auto_1fr] gap-x-3 text-xs">
+                <dt className="text-muted">Provider</dt>
+                <dd>{lastVoice.provider ? `${lastVoice.provider} · ${lastVoice.model}` : "—"}</dd>
+                <dt className="text-muted">Key used</dt>
+                <dd>{lastVoice.keySource ? (KEY_LABEL[lastVoice.keySource] ?? lastVoice.keySource) : "—"}</dd>
+                <dt className="text-muted">Length</dt>
+                <dd>
+                  {lastVoice.durationSec != null ? `${lastVoice.durationSec.toFixed(1)}s` : "—"}
+                  {lastVoice.converted ? " · WebM → Ogg" : ""}
+                </dd>
+                <dt className="text-muted">Transcription</dt>
+                <dd>{lastVoice.transcribeMs != null ? `${(lastVoice.transcribeMs / 1000).toFixed(2)}s` : "—"}</dd>
+                <dt className="text-muted">Bot</dt>
+                <dd>{lastVoice.botMs != null ? `${(lastVoice.botMs / 1000).toFixed(1)}s` : "—"}</dd>
+              </dl>
+              {lastVoice.note ? <p className="text-xs text-status-awaiting-fg">{lastVoice.note}</p> : null}
+            </Card>
+          ) : null}
           <Card padding="md" className="flex flex-col gap-2">
             <p className="flex items-center gap-2 font-bold">
               <ShoppingCart aria-hidden className="size-4" /> Cart
