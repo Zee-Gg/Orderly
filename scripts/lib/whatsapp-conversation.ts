@@ -193,9 +193,44 @@ export async function runBotConversations(opts: {
       (async () => {
         log("E. voice note");
         const e = "923001110005";
-        await post(e, { type: "audio", audio: { id: "AUDFAKE1", mime_type: "audio/ogg" } });
+        const id = await post(e, { type: "audio", audio: { id: "AUDFAKE1", mime_type: "audio/ogg; codecs=opus" } });
         const r = await reply(e, 1);
-        check("Voice note → 'please type' reply", r?.body === "Abhi sirf text messages samajh sakta hoon, please type kar dein 🙏", r?.body);
+        const { data: saved } = await admin.from("whatsapp_messages").select("transcript, transcribe_provider").eq("wa_message_id", id).single();
+        check("Voice note: transcript saved on the message", !!saved?.transcript && !!saved.transcribe_provider, saved);
+        check("Voice note: reply starts with what the bot understood (🎤 Aap ne kaha: …)", (r?.body ?? "").startsWith("🎤 Aap ne kaha:"), r?.body);
+        const { data: tlog } = await admin.from("ai_logs").select("id").eq("restaurant_id", t.restaurantId).eq("type", "transcription");
+        check("Voice note: transcription logged in ai_logs", (tlog?.length ?? 0) >= 1, tlog?.length);
+      })(),
+      (async () => {
+        log("F. voice note + text together");
+        const f = "923001110006";
+        await post(f, { type: "audio", audio: { id: "AUDFAKE2", mime_type: "audio/ogg; codecs=opus" } });
+        await text(f, "bas jaldi");
+        const first = await reply(f, 1);
+        await sleep(6_000);
+        const conv = await conversationOf(f);
+        const all = conv ? await outbound(conv.id) : [];
+        const { data: logs } = await admin
+          .from("ai_logs")
+          .select("input_text")
+          .eq("restaurant_id", t.restaurantId)
+          .eq("type", "chat")
+          .ilike("input_text", "%bas jaldi%");
+        check("Voice + text sent together → ONE bot turn", !!first && all.length === 1 && logs?.length === 1, { replies: all.length, logs });
+        // Same-second WhatsApp messages have no reliable order: check both lines are there.
+        const lines = (logs?.[0]?.input_text ?? "").split("\n");
+        check(
+          "The bot got the voice note as marked text + the typed text",
+          lines.length === 2 && lines.some((l) => l.startsWith("[voice note] ")) && lines.includes("bas jaldi"),
+          logs?.[0],
+        );
+      })(),
+      (async () => {
+        log("G. photo");
+        const g = "923001110007";
+        await post(g, { type: "image", image: { id: "IMGFAKE1", mime_type: "image/png" } });
+        const r = await reply(g, 1);
+        check("Photo → 'please type' reply", r?.body === "Abhi sirf text messages samajh sakta hoon, please type kar dein 🙏", r?.body);
       })(),
     ]);
   } finally {
