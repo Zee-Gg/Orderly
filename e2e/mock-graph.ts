@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { createServer, type Server } from "node:http";
 
 /**
@@ -11,9 +13,10 @@ import { createServer, type Server } from "node:http";
 export const MOCK_GRAPH_PORT = 3999;
 export const MOCK_GRAPH_URL = `http://localhost:${MOCK_GRAPH_PORT}`;
 
-// 1×1 PNG and a few bytes standing in for a voice note.
+// 1×1 PNG.
 const PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
-const OGG = Buffer.from("OggS fake voice note");
+// A real Ogg/Opus voice note (≈4 s), like WhatsApp sends.
+const OGG = readFileSync(path.resolve(process.cwd(), "tests/voice-eval/fixtures/order-en.ogg"));
 
 export function startMockGraph(): Promise<Server> {
   let sent = 0;
