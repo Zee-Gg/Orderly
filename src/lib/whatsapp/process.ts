@@ -1,9 +1,7 @@
 import { normalizePhone } from "@/lib/orders/phone";
-import { AUTO_REPLY_COOLDOWN_HOURS } from "./config";
-import { buildGreeting } from "./greeting";
 import { parseWebhookPayload } from "./payload";
 import { MEDIA_TYPES, storeInboundMedia } from "./media";
-import { createSender, type SenderDeps } from "./send";
+import type { SenderDeps } from "./send";
 import type { AccountRecord } from "./store";
 
 export type ProcessSummary = {
@@ -11,7 +9,8 @@ export type ProcessSummary = {
   media: number;
   duplicates: number;
   statuses: number;
-  autoReplies: number;
+  /** Conversations handed to the AI bot. */
+  botRuns: number;
   ignored: number;
   errors: string[];
 };
@@ -27,15 +26,21 @@ export type ProcessLog = (step: string, details?: Record<string, unknown>) => vo
 export const consoleProcessLog: ProcessLog = (step, details) =>
   console.log(`[whatsapp] ${step}`, details ? JSON.stringify(details) : "");
 
+/** The AI bot (Phase 7A-2): called once per conversation with its newest saved message. */
+export type InboundHook = (input: {
+  restaurantId: string;
+  branchId: string | null;
+  conversationId: string;
+  messageId: string;
+}) => Promise<void>;
+
 export async function processWebhookPayload(
-  deps: SenderDeps,
+  deps: SenderDeps & { onInbound?: InboundHook },
   payload: unknown,
   log: ProcessLog = () => {},
 ): Promise<ProcessSummary> {
-  const summary: ProcessSummary = { saved: 0, media: 0, duplicates: 0, statuses: 0, autoReplies: 0, ignored: 0, errors: [] };
+  const summary: ProcessSummary = { saved: 0, media: 0, duplicates: 0, statuses: 0, botRuns: 0, ignored: 0, errors: [] };
   const { store } = deps;
-  const now = deps.now ?? Date.now;
-  const sender = createSender(deps);
 
   const parsed = parseWebhookPayload(payload);
   summary.errors.push(...parsed.problems);
@@ -48,36 +53,8 @@ export async function processWebhookPayload(
     return found?.isActive ? found : null;
   }
 
-  /** The temporary greeting (until the Phase 7 bot). Never throws. */
-  async function greet(acc: AccountRecord, waId: string, result: { conversationId: string; botEnabled: boolean }) {
-    try {
-      if (!result.botEnabled) {
-        log("auto reply skipped: bot is off for this chat");
-        return;
-      }
-      if (!(await store.claimAutoReply(result.conversationId, AUTO_REPLY_COOLDOWN_HOURS))) {
-        log(`auto reply skipped: already greeted in the last ${AUTO_REPLY_COOLDOWN_HOURS}h`);
-        return;
-      }
-      const ctx = await store.getGreetingContext(acc.restaurantId, acc.branchId);
-      if (!ctx) {
-        log("auto reply skipped: restaurant details not found");
-        return;
-      }
-      const sent = await sender.sendText(acc.restaurantId, waId, buildGreeting(ctx, new Date(now())));
-      if (sent.ok) {
-        summary.autoReplies++;
-        log("auto reply sent", { waMessageId: sent.waMessageId });
-      } else {
-        summary.errors.push(`auto reply ${sent.status}: ${sent.error}`);
-        log(`auto reply ${sent.status}`, { error: sent.error });
-      }
-    } catch (err) {
-      const text = err instanceof Error ? err.message : String(err);
-      summary.errors.push(`auto reply: ${text}`);
-      log("auto reply FAILED", { error: text });
-    }
-  }
+  // Newest saved message per conversation → one bot run each (batching).
+  const latest = new Map<string, { account: AccountRecord; messageId: string }>();
 
   for (const message of parsed.messages) {
     try {
@@ -101,7 +78,7 @@ export async function processWebhookPayload(
       summary.saved++;
       log("message saved", { messageId: result.messageId, waMessageId: message.waMessageId });
 
-      await greet(acc, message.waId, result);
+      latest.set(result.conversationId, { account: acc, messageId: result.messageId });
 
       if (message.mediaId && MEDIA_TYPES.has(message.type)) {
         const media = await storeInboundMedia(deps, acc, result.messageId, message.mediaId);
@@ -118,6 +95,19 @@ export async function processWebhookPayload(
       summary.errors.push(`message ${message.waMessageId}: ${text}`);
       log("message FAILED", { waMessageId: message.waMessageId, error: text });
     }
+  }
+
+  if (deps.onInbound && latest.size) {
+    await Promise.all(
+      [...latest].map(async ([conversationId, { account, messageId }]) => {
+        try {
+          await deps.onInbound!({ restaurantId: account.restaurantId, branchId: account.branchId, conversationId, messageId });
+          summary.botRuns++;
+        } catch (err) {
+          summary.errors.push(`bot: ${err instanceof Error ? err.message : String(err)}`);
+        }
+      }),
+    );
   }
 
   for (const status of parsed.statuses) {
