@@ -1,7 +1,6 @@
 import {
   STATUS_FROM,
   type AccountRecord,
-  type GreetingContext,
   type OrderMessageContext,
   type WhatsAppStore,
 } from "./store";
@@ -32,12 +31,10 @@ export type MemoryMessage = {
 export function createMemoryStore(
   seed: {
     accounts?: AccountRecord[];
-    greeting?: GreetingContext;
     orders?: Record<string, OrderMessageContext>;
     now?: () => number;
   } = {},
 ) {
-  const now = seed.now ?? Date.now;
   let seq = 0;
   const id = (p: string) => `${p}-${++seq}`;
   const accounts = [...(seed.accounts ?? [])];
@@ -109,16 +106,6 @@ export function createMemoryStore(
       msg.status = update.status;
       if (update.error) msg.error = update.error;
       return true;
-    },
-    async claimAutoReply(conversationId, cooldownHours) {
-      const c = conversations.find((x) => x.id === conversationId);
-      if (!c || !c.botEnabled) return false;
-      if (c.lastAutoReplyAt !== null && now() - c.lastAutoReplyAt < cooldownHours * 3600_000) return false;
-      c.lastAutoReplyAt = now();
-      return true;
-    },
-    async getGreetingContext() {
-      return seed.greeting ?? null;
     },
     async getOrderMessageContext(_restaurantId, orderId) {
       return seed.orders?.[orderId] ?? null;
