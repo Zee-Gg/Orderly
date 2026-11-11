@@ -128,6 +128,14 @@ export function createFakeModel() {
         const missing = last.missing?.[0];
         return reply(missing && QUESTION[missing] ? QUESTION[missing] : `Maazrat: ${last.message ?? "masla aa gaya"}`);
       }
+      // Voice note: restate what was understood (from what the tools actually did).
+      if (userText.includes("[voice note]")) {
+        const added = results
+          .map((r) => r.output?.value as { ok?: boolean; line?: { quantity?: number; name?: string } } | undefined)
+          .filter((v) => v?.ok && v.line?.name)
+          .map((v) => `${v!.line!.quantity} ${v!.line!.name}`);
+        if (added.length) return reply(`🎤 Aap ne kaha: ${added.join(" aur ")}. Theek hai?`);
+      }
       const next = last?.still_needed?.[0];
       return reply(next ? QUESTION[next] ?? "Aur kuch?" : "Theek hai 👍 Aur kuch chahiye?");
     },
