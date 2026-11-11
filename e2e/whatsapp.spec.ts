@@ -100,8 +100,11 @@ test("a WhatsApp message shows in the inbox", async ({ browser, request }) => {
   await page.getByRole("link", { name: /Bilal Ahmed/ }).click();
   const thread = page.getByRole("region", { name: /Chat with Bilal Ahmed/ });
   await expect(thread).toContainText("2 chicken biryani chahiye");
-  // The greeting went out through the fake Graph API.
-  await expect(thread.locator('[data-direction="outbound"]')).toContainText("Karachi Biryani House");
+  // The bot answered through the fake Graph API. This restaurant has no menu yet,
+  // so the bot never invents one: it says so and hands the chat to staff.
+  await expect(thread.locator('[data-direction="outbound"]')).toContainText("online menu available nahi");
+  await expect(thread.getByText("Needs staff — the bot stopped replying")).toBeVisible();
+  await expect(page.getByRole("link", { name: /Bilal Ahmed/ }).getByText("Needs staff")).toBeVisible();
   await expect(page.locator("body")).not.toContainText(TOKEN); // Meta echoes tokens in errors: must be redacted
   await page.screenshot({ path: "test-results/whatsapp/inbox.png" });
 
