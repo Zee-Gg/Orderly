@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useOrdersLiveOptional } from "@/components/orders/live-provider";
 import { cn } from "@/lib/utils";
 import { AccountCard } from "./account-card";
 import { BranchSwitcher } from "./branch-switcher";
@@ -13,6 +14,7 @@ import type { ShellData } from "./shell-data";
 export function Sidebar({ data, className }: { data: ShellData; className?: string }) {
   const pathname = usePathname();
   const items = visibleNavItems(data.role);
+  const needsStaff = useOrdersLiveOptional()?.snapshot.needsStaff?.length ?? 0;
 
   return (
     <aside
@@ -48,6 +50,14 @@ export function Sidebar({ data, className }: { data: ShellData; className?: stri
             >
               <Icon aria-hidden className="size-5 shrink-0" />
               <span className="flex-1">{label}</span>
+              {href === "/inbox" && needsStaff > 0 ? (
+                <span
+                  className="min-w-6 rounded-full bg-danger px-1.5 text-center text-xs font-bold leading-6 text-white"
+                  aria-label={`${needsStaff} chat${needsStaff === 1 ? "" : "s"} need staff`}
+                >
+                  {needsStaff}
+                </span>
+              ) : null}
             </Link>
           );
         })}
