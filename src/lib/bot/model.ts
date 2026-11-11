@@ -3,6 +3,7 @@ import { createGoogle } from "@ai-sdk/google";
 import { createGroq } from "@ai-sdk/groq";
 import type { LanguageModel } from "ai";
 import { API_KEY_ENV, modelFor, type AiProvider } from "./config";
+import { createFakeModel } from "./testing/fake-model";
 
 /**
  * The language model for a provider. Keys are read here (server code only)
@@ -12,6 +13,8 @@ export function getModel(provider: AiProvider, env: Record<string, string | unde
   model: LanguageModel;
   modelId: string;
 } {
+  // TEST ONLY: rule-based fake AI for e2e (like WHATSAPP_GRAPH_BASE_URL, never set in production).
+  if (env.BOT_FAKE_AI === "1") return { model: createFakeModel(), modelId: "fake-rules" };
   const apiKey = env[API_KEY_ENV[provider]]?.trim();
   if (!apiKey) throw new Error(`${API_KEY_ENV[provider]} is not set (AI_PROVIDER=${provider})`);
   const modelId = modelFor(provider, env);
