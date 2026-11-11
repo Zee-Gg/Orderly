@@ -73,3 +73,27 @@ export function estimateCost(
   const usd = (uncached * r.input + usage.output * r.output + usage.cacheRead * r.cacheRead + usage.cacheWrite * r.cacheWrite) / 1_000_000;
   return Math.round(usd * 1_000_000) / 1_000_000;
 }
+
+// ---------------------------------------------------------------------------
+// Voice notes (Phase 7B)
+// ---------------------------------------------------------------------------
+
+export const TRANSCRIBE_PROVIDERS = ["groq", "google"] as const;
+export type TranscribeProvider = (typeof TRANSCRIBE_PROVIDERS)[number];
+
+/** Override with TRANSCRIBE_MODEL_GROQ / TRANSCRIBE_MODEL_GOOGLE. */
+export const TRANSCRIBE_MODELS: Record<TranscribeProvider, string> = {
+  // large-v3 (not turbo): in testing it kept Urdu script with language "ur";
+  // turbo sometimes switched to English words and digits.
+  groq: "whisper-large-v3",
+  // Gemini with audio input (generateText + audio file part), told to transcribe word for word.
+  google: "gemini-3.5-flash-lite",
+};
+
+/** USD per audio minute. PLACEHOLDERS: fill in from each provider's pricing page. Free tier = 0. */
+export const TRANSCRIBE_COST_PER_MINUTE: Record<TranscribeProvider, number> = { groq: 0, google: 0 };
+
+export const TRANSCRIBE_LIMITS = {
+  timeoutMs: 30_000,
+  rateLimitRetryMs: 2_000,
+} as const;
