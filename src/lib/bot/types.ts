@@ -135,7 +135,8 @@ export type AiLogRow = {
   cacheWriteTokens: number;
   estimatedCost: number;
   latencyMs: number;
-  errorType: "rate_limit" | "timeout" | "error" | null;
+  /** flood = customer sent >10 messages a minute; budget = monthly AI budget reached. */
+  errorType: "rate_limit" | "timeout" | "error" | "flood" | "budget" | null;
   error: string | null;
 };
 
