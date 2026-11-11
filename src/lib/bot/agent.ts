@@ -2,7 +2,7 @@ import { APICallError, generateText, isStepCount, RetryError, type LanguageModel
 import { computeStage } from "./cart";
 import { activeProvider, BOT_LIMITS, estimateCost, SUPPORTS_CACHE_CONTROL, type AiProvider } from "./config";
 import { detectLanguage } from "./language";
-import { buildMenuIndex, type MenuIndex } from "./menu-index";
+import { buildMenuIndex, scrubRefs, type MenuIndex } from "./menu-index";
 import { getModel } from "./model";
 import { dynamicPrompt, staticPrompt } from "./prompt";
 import { t } from "./texts";
@@ -407,7 +407,7 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
   else if (ctx.effects.summary && s.summaryHash && s.status === "awaiting_confirmation") reply = ctx.effects.summary.text;
   else if (ctx.effects.handedOff || status() === "handed_off") reply = tx.handedOff;
   else {
-    reply = result.text.trim() || tx.notUnderstood;
+    reply = scrubRefs(result.text.trim(), idx, s.cart).trim() || tx.notUnderstood;
   }
   return finish(reply, { order: ctx.effects.order, handedOff: status() === "handed_off", ai: true });
 }
