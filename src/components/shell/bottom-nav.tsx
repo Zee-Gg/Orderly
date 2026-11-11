@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Ellipsis } from "lucide-react";
+import { useOrdersLiveOptional } from "@/components/orders/live-provider";
 import { cn } from "@/lib/utils";
 import { Drawer } from "@/components/ui/drawer";
 import { AccountCard } from "./account-card";
@@ -21,6 +22,7 @@ export function BottomNav({ data, className }: { data: ShellData; className?: st
   const pathname = usePathname();
   const [moreOpen, setMoreOpen] = useState(false);
   const items = visibleNavItems(data.role);
+  const needsStaff = useOrdersLiveOptional()?.snapshot.needsStaff?.length ?? 0;
   const primary = items.filter((i) => i.inBottomNav);
   const more = items.filter((i) => !i.inBottomNav);
   const moreActive = more.some((i) => isActive(pathname, i.href));
@@ -43,7 +45,17 @@ export function BottomNav({ data, className }: { data: ShellData; className?: st
               aria-current={active ? "page" : undefined}
               className={tabClasses(active)}
             >
-              <Icon aria-hidden className="size-6" />
+              <span className="relative">
+                <Icon aria-hidden className="size-6" />
+                {href === "/inbox" && needsStaff > 0 ? (
+                  <span
+                    className="absolute -top-1.5 -right-2.5 min-w-5 rounded-full bg-danger px-1 text-center text-[11px] font-bold leading-5 text-white"
+                    aria-label={`${needsStaff} chat${needsStaff === 1 ? "" : "s"} need staff`}
+                  >
+                    {needsStaff}
+                  </span>
+                ) : null}
+              </span>
               {label}
             </Link>
           );
