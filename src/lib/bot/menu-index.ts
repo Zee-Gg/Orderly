@@ -126,6 +126,24 @@ export function describeItem(idx: MenuIndex, item: BranchMenuItem, category?: st
   };
 }
 
+/**
+ * Safety net: the AI must never show internal refs (I3, S2, O5, L1) to a
+ * customer. "Raita (I10)" → "Raita"; a bare "I10" → "Raita".
+ */
+export function scrubRefs(text: string, idx: MenuIndex, cart: { lineId: string; name: string }[]): string {
+  const nameOf = (ref: string): string | null => {
+    const r = ref.toUpperCase();
+    if (r.startsWith("I")) return idx.items.get(r)?.item.name ?? null;
+    if (r.startsWith("S")) return idx.sizes.get(r)?.name ?? null;
+    if (r.startsWith("O")) return idx.options.get(r)?.name ?? null;
+    return cart.find((l) => l.lineId.toUpperCase() === r)?.name ?? null;
+  };
+  return text
+    .replace(/\s*\((?:\s*[ISOL]\d{1,3}\s*,?)+\)/g, "") // "(I10)", "(I3, S2)" next to a name
+    .replace(/\b([ISOL]\d{1,3})\b/g, (m) => nameOf(m) ?? m)
+    .replace(/[ \t]{2,}/g, " ");
+}
+
 /** Compact menu for the system prompt: one line per item. */
 export function compactMenu(idx: MenuIndex): string {
   const lines: string[] = [];
