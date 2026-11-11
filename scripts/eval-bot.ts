@@ -2,6 +2,7 @@
  * Bot evaluation against the REAL AI and a throwaway restaurant with the demo menu.
  *
  *   npm run eval:bot [-- --provider google|anthropic|groq] [--only id,category] [--delay 2000] [--verbose]
+ *                    [--cases tests/bot-eval/corrections/<date>.json]
  *
  * Prints a score per category and overall, lists failures, and saves
  * test-results/bot-eval-<date>.json (with cost and latency per conversation).
@@ -54,6 +55,7 @@ const provider: AiProvider = (providerArg as AiProvider) ?? activeProvider();
 const only = flag("only")?.split(",").map((s) => s.trim()).filter(Boolean);
 const delayMs = Number(flag("delay") ?? 0);
 const verbose = args.includes("--verbose");
+const casesFile = flag("cases") ?? "tests/bot-eval/cases.json";
 
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const admin: SupabaseClient<Database> = createClient<Database>(url, process.env.SUPABASE_SECRET_KEY!, {
@@ -136,7 +138,8 @@ async function runCase(t: BotTestRestaurant, c: Case): Promise<CaseResult> {
     tokens.output += res.usage.output;
     if (res.error) {
       errors.push(`${res.error.type}: ${res.error.message.slice(0, 160)}`);
-      if (res.error.type === "rate_limit") rateLimited++;
+      // Rate limits and "provider busy" say nothing about quality: the case is re-run.
+      if (res.error.type === "rate_limit" || /high demand|overloaded|unavailable|503/i.test(res.error.message)) rateLimited++;
     }
     if (verbose) {
       console.log(`    > ${messages.join(" / ")}${buttonId ? ` [${buttonId}]` : ""}`);
@@ -259,7 +262,9 @@ async function runCase(t: BotTestRestaurant, c: Case): Promise<CaseResult> {
 }
 
 async function main() {
-  const all = JSON.parse(readFileSync("tests/bot-eval/cases.json", "utf8")) as Case[];
+  const loaded = JSON.parse(readFileSync(casesFile, "utf8")) as (Case & { demo_menu?: boolean })[];
+  // Exported corrections that use a real restaurant's items can't run on the demo menu.
+  const all = loaded.filter((c) => c.demo_menu !== false);
   const cases = only ? all.filter((c) => only.includes(c.id) || only.includes(c.category)) : all;
   console.log(`Bot eval · ${provider} (${modelFor(provider)}) · ${cases.length} cases`);
 
@@ -272,7 +277,7 @@ async function main() {
       for (let attempt = 0; attempt < 3; attempt++) {
         r = await runCase(t, c);
         if (!r.rateLimited || r.pass) break;
-        console.log(`  … ${c.id} rate limited, waiting 30s`);
+        console.log(`  … ${c.id} rate limited / provider busy, waiting 30s`);
         await sleep(30_000);
       }
       results.push(r!);
