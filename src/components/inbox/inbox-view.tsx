@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -15,10 +15,19 @@ import {
   MessageCircle,
   ShoppingBag,
   Mic,
+  Phone,
+  Bot,
+  UserRound,
   Wifi,
   WifiOff,
 } from "lucide-react";
+import { Alert } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { useToast } from "@/components/ui/toast";
+import { usePermission } from "@/lib/auth/permissions-context";
+import { turnBotBackOnAction } from "@/lib/whatsapp/inbox-actions";
 import { formatPhone } from "@/lib/orders/phone";
 import { useLiveRefresh } from "@/lib/realtime/use-live-refresh";
 import { formatClock, timeAgo } from "@/lib/time";
@@ -58,6 +67,8 @@ export function InboxView({
     filter: `restaurant_id=eq.${restaurantId}`,
     refresh,
   });
+  // Handoffs ("Needs staff") and "bot back on" change the conversation row.
+  useLiveRefresh({ table: "whatsapp_conversations", filter: `restaurant_id=eq.${restaurantId}`, refresh });
 
   if (conversations.length === 0) {
     return (
@@ -93,6 +104,11 @@ export function InboxView({
               >
                 <span className="flex items-baseline gap-2">
                   <span className="min-w-0 flex-1 truncate font-semibold text-ink">{displayName(c)}</span>
+                  {!c.botEnabled ? (
+                    <Badge tone="cancelled" shape="square" icon={<UserRound />}>
+                      Needs staff
+                    </Badge>
+                  ) : null}
                   {c.lastMessageAt ? <span className="shrink-0 text-xs text-muted">{timeAgo(c.lastMessageAt)}</span> : null}
                 </span>
                 {c.name && c.phone ? <span className="text-xs text-muted">{formatPhone(c.phone)}</span> : null}
@@ -139,6 +155,7 @@ function Thread({
           <p className="text-xs text-muted">{formatPhone(conversation.phone ?? `+${conversation.waId}`) || `+${conversation.waId}`}</p>
         </div>
       </header>
+      {!conversation.botEnabled ? <NeedsStaff conversation={conversation} /> : null}
       <div className="flex flex-1 flex-col gap-2 overflow-y-auto bg-subtle/50 p-3 lg:p-4">
         {messages.map((m) => (
           <Bubble key={m.id} message={m} timezone={timezone} />
@@ -236,6 +253,43 @@ function Media({ message: m }: { message: InboxMessage }) {
     >
       <FileText aria-hidden className="size-5 shrink-0" /> Open document
     </a>
+  );
+}
+
+/** The bot handed this chat to staff: reason, call button, and "Turn bot back on". */
+function NeedsStaff({ conversation }: { conversation: InboxConversation }) {
+  const router = useRouter();
+  const { toast } = useToast();
+  const canToggle = usePermission("inbox.bot_toggle");
+  const [pending, start] = useTransition();
+  const phone = conversation.phone ?? `+${conversation.waId}`;
+  return (
+    <div className="border-b border-line p-3">
+      <Alert title="Needs staff — the bot stopped replying">
+        <p>{conversation.handoffReason ?? "The bot handed this chat to staff."}</p>
+        <p className="mt-1 text-sm">Call the customer for now (replying from Orderly comes later).</p>
+        <div className="mt-2 flex flex-wrap gap-2">
+          <a href={`tel:${phone}`} className={buttonVariants({ variant: "secondary" })}>
+            <Phone aria-hidden /> Call {formatPhone(phone) || phone}
+          </a>
+          {canToggle ? (
+            <Button
+              icon={<Bot />}
+              loading={pending}
+              onClick={() =>
+                start(async () => {
+                  const r = await turnBotBackOnAction({ conversationId: conversation.id });
+                  toast({ tone: r.ok ? "success" : "error", title: r.ok ? (r.message ?? "Bot is back on") : r.error });
+                  if (r.ok) router.refresh();
+                })
+              }
+            >
+              Turn bot back on
+            </Button>
+          ) : null}
+        </div>
+      </Alert>
+    </div>
   );
 }
 
