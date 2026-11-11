@@ -31,6 +31,8 @@ type Texts = {
   menuUnavailable: string;
   mediaNotSupported: string;
   chooseBelow: string;
+  voiceTooLong: string;
+  voiceUnclear: string;
   blocked: (phone: string | null) => string;
   buttons: {
     confirm: string;
@@ -70,6 +72,8 @@ const ROMAN: Texts = {
   handedOff: "Aap ki baat staff se karwa raha hoon, thori der mein jawab milega 🙏",
   mediaNotSupported: "Abhi sirf text messages samajh sakta hoon, please type kar dein 🙏",
   chooseBelow: "Neeche se choose karein 👇",
+  voiceTooLong: "Thora chota voice note bhejein ya type kar dein 🙏",
+  voiceUnclear: "Maazrat, voice note samajh nahi aaya. Dobara bhejein ya type kar dein 🙏",
   menuUnavailable: "Maazrat, abhi online menu available nahi hai. Hamara staff jald aap se raabta karega 🙏",
   blocked: (p) => `Maazrat, is number se online order nahi ho sakta.${p ? ` Order ke liye call karein: ${p}` : ""}`,
   buttons: { confirm: "✅ Confirm", change: "✏️ Change", cancel: "❌ Cancel", delivery: "🛵 Delivery", pickup: "🛍️ Pickup", cod: "💵 Cash on delivery", card: "💳 Card on delivery" },
@@ -113,6 +117,8 @@ const ENGLISH: Texts = {
   handedOff: "I'm passing you to our staff, you'll get a reply shortly 🙏",
   mediaNotSupported: "For now I can only read text messages, please type it 🙏",
   chooseBelow: "Please choose below 👇",
+  voiceTooLong: "Please send a shorter voice note or type it 🙏",
+  voiceUnclear: "Sorry, I couldn't understand the voice note. Please send it again or type it 🙏",
   menuUnavailable: "Sorry, our online menu isn't available right now. Our staff will contact you shortly 🙏",
   blocked: (p) => `Sorry, online ordering isn't available for this number.${p ? ` Please call us to order: ${p}` : ""}`,
   buttons: { confirm: "✅ Confirm", change: "✏️ Change", cancel: "❌ Cancel", delivery: "🛵 Delivery", pickup: "🛍️ Pickup", cod: "💵 Cash on delivery", card: "💳 Card on delivery" },
@@ -156,6 +162,8 @@ const URDU: Texts = {
   handedOff: "آپ کی بات عملے سے کروا رہا ہوں، تھوڑی دیر میں جواب ملے گا 🙏",
   mediaNotSupported: "ابھی صرف ٹیکسٹ پیغامات سمجھ سکتا ہوں، براہ کرم لکھ دیں 🙏",
   chooseBelow: "نیچے سے منتخب کریں 👇",
+  voiceTooLong: "تھوڑا چھوٹا وائس نوٹ بھیجیں یا لکھ دیں 🙏",
+  voiceUnclear: "معذرت، وائس نوٹ سمجھ نہیں آیا۔ دوبارہ بھیجیں یا لکھ دیں 🙏",
   menuUnavailable: "معذرت، ابھی آن لائن مینو دستیاب نہیں۔ ہمارا عملہ جلد آپ سے رابطہ کرے گا 🙏",
   blocked: (p) => `معذرت، اس نمبر سے آن لائن آرڈر نہیں ہو سکتا۔${p ? ` آرڈر کے لیے کال کریں: ${p}` : ""}`,
   buttons: { confirm: "✅ کنفرم", change: "✏️ تبدیلی", cancel: "❌ کینسل", delivery: "🛵 ڈیلیوری", pickup: "🛍️ پک اپ", cod: "💵 کیش آن ڈیلیوری", card: "💳 کارڈ آن ڈیلیوری" },
