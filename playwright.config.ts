@@ -24,6 +24,7 @@ export default defineConfig({
     url: "http://localhost:3123/login",
     reuseExistingServer: true,
     timeout: 120_000,
-    env: { WHATSAPP_GRAPH_BASE_URL: "http://localhost:3999" },
+    // Fake Graph API + rule-based fake AI (src/lib/bot/testing/fake-model.ts): no Meta, no AI provider.
+    env: { WHATSAPP_GRAPH_BASE_URL: "http://localhost:3999", BOT_FAKE_AI: "1" },
   },
 });
