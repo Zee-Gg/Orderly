@@ -17,8 +17,6 @@ export const GRAPH_API_BASE = `${GRAPH_HOST}/${GRAPH_API_VERSION}`;
  */
 export const CUSTOMER_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** The temporary greeting is sent at most once per conversation in this time. */
-export const AUTO_REPLY_COOLDOWN_HOURS = 6;
 
 /** Sends retry (after the first try) on network errors and 5xx. */
 export const SEND_MAX_RETRIES = 3;
