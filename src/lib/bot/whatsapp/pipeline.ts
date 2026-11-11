@@ -2,6 +2,7 @@ import { monthStart } from "@/lib/time";
 import { runBotTurn, type AgentDeps, type BotButton, type BotTurnInput } from "../agent";
 import { detectLanguage } from "../language";
 import { t } from "../texts";
+import { handleVoice, VOICE_MARKER } from "../voice/handle";
 import type { BotLanguage, BotStore } from "../types";
 import type { BotChannelStore, PendingMessage } from "./channel";
 
@@ -36,6 +37,8 @@ export type PipelineDeps = {
   botStore: BotStore;
   sender: PipelineSender;
   agent?: Omit<AgentDeps, "store">;
+  /** Voice transcription (tests inject a fake; default: the real providers). */
+  voice?: { handle: typeof handleVoice };
   sleep?: (ms: number) => Promise<void>;
   now?: () => Date;
   log?: (step: string, details?: Record<string, unknown>) => void;
@@ -62,12 +65,32 @@ export function combineMessages(messages: PendingMessage[]): {
   buttonId: string | null;
   location: Location | null;
   mediaOnly: boolean;
+  voice: boolean;
+  voiceTooLong: boolean;
+  voiceFailed: boolean;
 } {
   const texts: string[] = [];
   let buttonId: string | null = null;
   let location: Location | null = null;
   let media = 0;
+  let voice = false;
+  let voiceTooLong = false;
+  let voiceFailed = false;
   for (const m of messages) {
+    // Voice notes, already transcribed by the pipeline.
+    if (m.type === "voice") {
+      voice = true;
+      if (m.body?.trim()) texts.push(`${VOICE_MARKER} ${m.body.trim()}`);
+      continue;
+    }
+    if (m.type === "voice_too_long") {
+      voiceTooLong = true;
+      continue;
+    }
+    if (m.type === "voice_failed") {
+      voiceFailed = true;
+      continue;
+    }
     const raw = (m.raw ?? {}) as Record<string, unknown>;
     if (m.type === "location") {
       const l = raw.location as { latitude?: number; longitude?: number; name?: string; address?: string } | undefined;
@@ -91,7 +114,7 @@ export function combineMessages(messages: PendingMessage[]): {
     buttonId = null; // typing after tapping a button: the typed text wins
     if (m.body?.trim()) texts.push(m.body.trim());
   }
-  return { texts, buttonId, location, mediaOnly: media > 0 && texts.length === 0 };
+  return { texts, buttonId, location, mediaOnly: media > 0 && texts.length === 0 && !voiceTooLong && !voiceFailed, voice, voiceTooLong, voiceFailed };
 }
 
 export function createBotPipeline(deps: PipelineDeps) {
@@ -169,15 +192,57 @@ export function createBotPipeline(deps: PipelineDeps) {
       return true;
     }
 
-    const batch = combineMessages(pending);
+    // Voice notes → text (same path as the playground): duration check, transcription, "unclear".
+    const voiceHandler = deps.voice?.handle ?? handleVoice;
+    const sessionForLog = await channel.findOpenSessionId(restaurantId, conversationId);
+    const prepared: PendingMessage[] = [];
+    for (const m of pending) {
+      if (m.type !== "audio") {
+        prepared.push(m);
+        continue;
+      }
+      if (m.transcript?.trim()) {
+        prepared.push({ ...m, type: "voice", body: m.transcript });
+        continue;
+      }
+      const bytes = m.mediaUrl ? await channel.downloadMedia(m.mediaUrl) : null;
+      if (!bytes) {
+        log("voice note: audio not available");
+        prepared.push({ ...m, type: "voice_failed" });
+        continue;
+      }
+      const outcome = await voiceHandler(bytes, {
+        restaurantId,
+        sessionId: sessionForLog,
+        logTurn: (row) => botStore.logTurn(row),
+      });
+      if (outcome.kind === "too_long") {
+        log("voice note too long", { seconds: Math.round(outcome.durationSec) });
+        prepared.push({ ...m, type: "voice_too_long" });
+      } else if (outcome.kind === "unclear") {
+        log("voice note unclear", { reason: outcome.reason });
+        prepared.push({ ...m, type: "voice_failed" });
+      } else {
+        await channel.saveTranscript(m.id, outcome.transcript, outcome.result.provider);
+        log("voice note transcribed", { provider: outcome.result.provider, ms: outcome.result.latencyMs, seconds: outcome.durationSec });
+        prepared.push({ ...m, type: "voice", body: outcome.transcript });
+      }
+    }
+
+    const batch = combineMessages(prepared);
     const sample = batch.texts.join(" ");
+    if (!batch.texts.length && !batch.location && batch.voiceTooLong) {
+      const language = await languageFor(restaurantId, conv.customerId, sample);
+      await sender.sendText(restaurantId, conv.waId, t(language).voiceTooLong);
+      return true;
+    }
     if (batch.mediaOnly) {
       const language = await languageFor(restaurantId, conv.customerId, sample);
       log("media only: asking the customer to type");
       await sender.sendText(restaurantId, conv.waId, t(language).mediaNotSupported);
       return true;
     }
-    if (!batch.texts.length && !batch.location) return true;
+    if (!batch.texts.length && !batch.location && !batch.voiceFailed) return true;
 
     const sessionId = await channel.findOpenSessionId(restaurantId, conversationId);
     // AI budget: a NEW conversation goes straight to staff once this month's budget is used.
@@ -218,9 +283,12 @@ export function createBotPipeline(deps: PipelineDeps) {
         sessionId,
         customerId: conv.customerId,
         conversationId,
-        customerMessages: batch.texts.length ? batch.texts : ["[Customer shared a location pin]"],
+        customerMessages: batch.texts.length ? batch.texts : batch.location ? ["[Customer shared a location pin]"] : [`${VOICE_MARKER} (not understood)`],
         buttonId: batch.buttonId,
         location: batch.location,
+        voice: batch.voice,
+        // Only a voice note we couldn't understand, nothing else to go on.
+        voiceFailed: batch.voiceFailed && !batch.texts.length && !batch.location,
       },
       { store: botStore, ...deps.agent },
     );
@@ -235,13 +303,14 @@ export function createBotPipeline(deps: PipelineDeps) {
       error: result.error?.type ?? null,
     });
 
-    if (result.replyText) {
-      const sent = await send(restaurantId, conv.waId, result.replyText, result.showButtons);
-      if (!sent.ok) log("reply NOT sent", { error: sent.error });
-    }
+    // Handoff first: the chat is with staff before the customer can answer the message.
     if (result.handedOff && result.replyText) {
       await channel.setHandoff(restaurantId, conversationId, result.session.handoffReason ?? "Bot handed off to staff");
       log("handed off to staff", { reason: result.session.handoffReason });
+    }
+    if (result.replyText) {
+      const sent = await send(restaurantId, conv.waId, result.replyText, result.showButtons);
+      if (!sent.ok) log("reply NOT sent", { error: sent.error });
     }
     return true;
   }
