@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Clock, MapPin, PauseCircle, PhoneCall, TriangleAlert, Utensils } from "lucide-react";
+import { Bot, Check, Clock, MapPin, PauseCircle, PhoneCall, TriangleAlert, Utensils } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -138,7 +138,16 @@ export function OrderCard({
           <span className="text-xl font-bold">{formatPKR(order.total)}</span>
           <PaymentBadge payment={paymentKindOf(order.paymentMethod, order.paymentStatus)} size="md" />
         </div>
-        {order.source !== "walk_in" ? <SourceBadge source={order.source} size="md" className="mt-2" /> : null}
+        {order.source !== "walk_in" ? (
+          <span className="mt-2 flex flex-wrap items-center gap-1.5">
+            <SourceBadge source={order.source} size="md" />
+            {order.fromBot ? (
+              <Badge tone="brand" shape="square" icon={<Bot />} aria-label="Taken by the AI bot">
+                AI
+              </Badge>
+            ) : null}
+          </span>
+        ) : null}
       </button>
 
       {isNew ? (
