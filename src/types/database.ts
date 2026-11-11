@@ -120,6 +120,7 @@ export type Database = {
           restaurant_id: string
           session_id: string | null
           tool_calls: Json
+          type: string
         }
         Insert: {
           cache_read_tokens?: number
@@ -139,6 +140,7 @@ export type Database = {
           restaurant_id: string
           session_id?: string | null
           tool_calls?: Json
+          type?: string
         }
         Update: {
           cache_read_tokens?: number
@@ -158,6 +160,7 @@ export type Database = {
           restaurant_id?: string
           session_id?: string | null
           tool_calls?: Json
+          type?: string
         }
         Relationships: [
           {
@@ -1729,6 +1732,8 @@ export type Database = {
           raw: Json | null
           restaurant_id: string
           status: Database["public"]["Enums"]["wa_message_status"]
+          transcribe_provider: string | null
+          transcript: string | null
           type: Database["public"]["Enums"]["wa_message_type"]
           updated_at: string
           wa_message_id: string | null
@@ -1749,6 +1754,8 @@ export type Database = {
           raw?: Json | null
           restaurant_id: string
           status: Database["public"]["Enums"]["wa_message_status"]
+          transcribe_provider?: string | null
+          transcript?: string | null
           type?: Database["public"]["Enums"]["wa_message_type"]
           updated_at?: string
           wa_message_id?: string | null
@@ -1769,6 +1776,8 @@ export type Database = {
           raw?: Json | null
           restaurant_id?: string
           status?: Database["public"]["Enums"]["wa_message_status"]
+          transcribe_provider?: string | null
+          transcript?: string | null
           type?: Database["public"]["Enums"]["wa_message_type"]
           updated_at?: string
           wa_message_id?: string | null
