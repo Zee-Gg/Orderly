@@ -257,6 +257,7 @@ export function createSupabaseBotStore(db: Db): BotStore {
     async logTurn(row) {
       check(
         await db.from("ai_logs").insert({
+          type: row.type ?? "chat",
           restaurant_id: row.restaurantId,
           session_id: row.sessionId,
           input_text: row.inputText.slice(0, 4000),
