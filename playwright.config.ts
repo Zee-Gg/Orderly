@@ -25,6 +25,7 @@ export default defineConfig({
     reuseExistingServer: true,
     timeout: 120_000,
     // Fake Graph API + rule-based fake AI (src/lib/bot/testing/fake-model.ts): no Meta, no AI provider.
-    env: { WHATSAPP_GRAPH_BASE_URL: "http://localhost:3999", BOT_FAKE_AI: "1" },
+    // ENABLE_DEV_TOOLS: the bot playground on this production build (tests only).
+    env: { WHATSAPP_GRAPH_BASE_URL: "http://localhost:3999", BOT_FAKE_AI: "1", ENABLE_DEV_TOOLS: "1" },
   },
 });
