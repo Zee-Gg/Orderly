@@ -297,6 +297,17 @@ id, restaurant_id, session_id, input_text, tool_calls jsonb, reply_text, provide
 - `restaurants.bot_enabled` (default true), `restaurants.high_value_cod_threshold` (paisa, default Rs 5,000).
 - `orders.risk_flag` — set by the server only, e.g. "New customer, high value — call to confirm." (new customer + cash on delivery + total above the threshold). Shown on the order card and drawer.
 
+### Phase 7A-2 — bot on WhatsApp ✅
+Migration `20261115100000_bot_whatsapp.sql`.
+- `whatsapp_messages.bot_handled_at` — inbound messages the bot has handled (batching; partial index on unhandled inbound).
+- `whatsapp_conversations.bot_lock_until` (one bot turn at a time, RPC `bot_claim_conversation(conversation_id, ttl_seconds)`, service role only), `bot_muted_until` (flood limit), `handoff_reason`, `handed_off_at` (with `bot_enabled = false` = "Needs staff").
+- `restaurants.ai_monthly_budget_usd` (numeric USD, null = no limit; no column grant → super admin via server action only).
+- `ai_logs.error_type` also allows `flood` and `budget`.
+- RPC `ai_usage_summary(since, restaurant_id?)` → per restaurant: conversations, bot_orders, input/output tokens, cost (service role only).
+
+### `ai_corrections` ✅
+id, restaurant_id, order_id (composite FK to orders), session_id (bot_sessions), before jsonb, after jsonb (`OrderSnapshot`: order type, payment, lines with item/size/qty/extras/removals/notes), edited_by, created_at. Written by the server when staff edit a bot order still awaiting acceptance; owner/manager + super admin read. Exported as eval cases by `scripts/export-ai-corrections.ts`.
+
 ---
 
 ## Phase 7 — Payments (records only, no gateways in MVP)
