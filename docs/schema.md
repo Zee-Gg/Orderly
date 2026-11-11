@@ -308,6 +308,11 @@ Migration `20261115100000_bot_whatsapp.sql`.
 ### `ai_corrections` ✅
 id, restaurant_id, order_id (composite FK to orders), session_id (bot_sessions), before jsonb, after jsonb (`OrderSnapshot`: order type, payment, lines with item/size/qty/extras/removals/notes), edited_by, created_at. Written by the server when staff edit a bot order still awaiting acceptance; owner/manager + super admin read. Exported as eval cases by `scripts/export-ai-corrections.ts`.
 
+### Phase 7B — voice notes ✅
+Migration `20261116100000_voice.sql`.
+- `whatsapp_messages.transcript` (≤ 4000), `transcribe_provider` — saved by the server after transcribing a voice note.
+- `ai_logs.type` (`chat` | `transcription`, default chat): every transcription is logged with provider, model, latency, cost (USD per audio minute from `TRANSCRIBE_COST_PER_MINUTE`).
+
 ---
 
 ## Phase 7 — Payments (records only, no gateways in MVP)
