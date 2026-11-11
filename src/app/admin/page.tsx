@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import Link from "next/link";
-import { ChevronRight, MessageCircle, ShieldCheck } from "lucide-react";
+import { Bot, ChevronRight, MessageCircle, ShieldCheck } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { SkeletonList } from "@/components/ui/skeleton";
@@ -21,6 +21,16 @@ async function Admin() {
           <div className="min-w-0 flex-1">
             <p className="font-bold text-ink">WhatsApp connections</p>
             <p className="text-sm text-muted">Connect each restaurant to its WhatsApp number.</p>
+          </div>
+          <ChevronRight aria-hidden className="size-5 text-muted" />
+        </Card>
+      </Link>
+      <Link href="/admin/ai-usage" className="block max-w-xl">
+        <Card padding="lg" className="flex items-center gap-4 hover:bg-subtle">
+          <Bot aria-hidden className="size-6 text-brand-700" />
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-ink">AI usage and budgets</p>
+            <p className="text-sm text-muted">Bot chats, orders, tokens and cost per restaurant.</p>
           </div>
           <ChevronRight aria-hidden className="size-5 text-muted" />
         </Card>
