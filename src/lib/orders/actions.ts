@@ -23,6 +23,7 @@ import {
   type PreviewResult,
   type Scope,
 } from "./engine";
+import { correctionCandidate, recordCorrection } from "@/lib/bot/corrections";
 // Registers WhatsApp order status messages on emitOrderEvent (runs in after()).
 import "./notifications";
 import {
@@ -87,7 +88,24 @@ export async function transitionOrderAction(input: TransitionInput) {
 }
 
 export async function editOrderAction(input: EditOrderInput) {
-  return guarded("orders.edit", ({ deps, scope, actor }) => editOrder(deps, scope, input, actor));
+  return guarded("orders.edit", async ({ ctx, deps, scope, actor }) => {
+    // Staff fixing a bot order before accepting it = a lesson for the bot (ai_corrections).
+    const orderId = z.uuid().safeParse(input.orderId);
+    const watch = orderId.success
+      ? await correctionCandidate(deps.admin, ctx.restaurant.id, orderId.data).catch(() => null)
+      : null;
+    const result = await editOrder(deps, scope, input, actor);
+    if (result.ok && watch && orderId.success) {
+      await recordCorrection(deps.admin, {
+        restaurantId: ctx.restaurant.id,
+        orderId: orderId.data,
+        sessionId: watch.sessionId,
+        before: watch.before,
+        editedBy: ctx.user.id,
+      }).catch((err) => console.error("[bot] could not save AI correction", err instanceof Error ? err.message : err));
+    }
+    return result;
+  });
 }
 
 export async function holdOrderAction(input: HoldInput) {
