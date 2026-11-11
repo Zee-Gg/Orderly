@@ -30,6 +30,8 @@ export type BotTurnInput = {
   customerMessages: string[];
   /** Set when the customer tapped a button (confirm, cancel, …). */
   buttonId?: string | null;
+  /** A WhatsApp location pin: saved as the delivery location before the AI runs. */
+  location?: { latitude: number; longitude: number; name?: string | null; address?: string | null } | null;
 };
 
 export type BotTurnResult = {
@@ -58,6 +60,14 @@ export type AgentDeps = {
 };
 
 const OPEN_STATUSES = new Set(["active", "awaiting_confirmation", "handed_off"]);
+
+/** Buttons with exactly one meaning: code runs the tool, then the AI asks the next question. */
+const BUTTON_TOOLS: Record<string, { tool: string; input: Record<string, string> }> = {
+  order_type_delivery: { tool: "set_order_type", input: { order_type: "delivery" } },
+  order_type_pickup: { tool: "set_order_type", input: { order_type: "pickup" } },
+  payment_cod: { tool: "set_payment_method", input: { payment_method: "cod" } },
+  payment_card: { tool: "set_payment_method", input: { payment_method: "card_on_delivery" } },
+};
 const MAX_TRANSCRIPT = 40;
 
 export function isRateLimitError(err: unknown): boolean {
@@ -173,7 +183,9 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
   const customer: CustomerInfo | null = s.customerId ? await store.getCustomer(s.restaurantId, s.customerId) : null;
 
   // --- Language: follow the script/language of this message; remember it.
-  const detected = detectLanguage(text);
+  // Only what the customer typed decides the language: not button titles, not
+  // our own bracketed notes like "[Customer shared a location pin]".
+  const detected = input.buttonId ? null : detectLanguage(text.replace(/\[[^\]]*\]/g, " "));
   if (detected) s.language = detected;
   if (customer && detected && customer.preferredLanguage !== detected) {
     await store.setCustomerLanguage(s.restaurantId, customer.id, detected);
@@ -270,6 +282,23 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
   if (input.buttonId === "cancel" && !s.orderId) {
     await runTool(ctx, "cancel_session", {});
     return finish(t(s.language).cancelled);
+  }
+  const direct = BUTTON_TOOLS[input.buttonId ?? ""];
+  if (direct) {
+    const r = await runTool(ctx, direct.tool, direct.input);
+    toolCalls.push({ tool: direct.tool, input: direct.input, output: r, ms: 0 });
+  }
+  // A location pin is the delivery location (the bot may still ask for a landmark).
+  if (input.location) {
+    s.orderType = "delivery";
+    s.address = {
+      ...s.address,
+      latitude: input.location.latitude,
+      longitude: input.location.longitude,
+      text: s.address.text || [input.location.name, input.location.address].filter(Boolean).join(", ") || s.address.text,
+    };
+    s.summaryHash = null;
+    if (s.status === "awaiting_confirmation") s.status = "active";
   }
 
   // Nothing to sell (menu not set up, or everything hidden): never let the AI
@@ -376,9 +405,9 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
   if (ctx.effects.order) reply = tx.orderPlaced(ctx.effects.order.orderNumber);
   else if (ctx.effects.cancelled) reply = tx.cancelled;
   else if (ctx.effects.summary && s.summaryHash && s.status === "awaiting_confirmation") reply = ctx.effects.summary.text;
+  else if (ctx.effects.handedOff || status() === "handed_off") reply = tx.handedOff;
   else {
-    reply = result.text.trim();
-    if (!reply) reply = status() === "handed_off" ? tx.handedOff : tx.notUnderstood;
+    reply = result.text.trim() || tx.notUnderstood;
   }
   return finish(reply, { order: ctx.effects.order, handedOff: status() === "handed_off", ai: true });
 }
