@@ -226,6 +226,73 @@ export async function runBotConversations(opts: {
         );
       })(),
       (async () => {
+        // H. Phase 7C: menu image (with the price caption) and the location pin, sent BEFORE the bot's text.
+        log("H. menu + location");
+        const h = "923001110008";
+        await admin
+          .from("menu_media")
+          .insert({ restaurant_id: t.restaurantId, type: "image", storage_path: `${t.restaurantId}/menu/e2e-menu.jpg`, file_name: "menu.jpg" });
+        await text(h, "menu bhejo");
+        const after = await reply(h, 3);
+        const conv = await conversationOf(h);
+        const [first, link] = conv ? await outbound(conv.id) : [];
+        check(
+          "Menu: image sent first, with the 'final prices' caption",
+          first?.type === "image" && first.body === "Final prices aap ke order summary mein confirm honge",
+          first,
+        );
+        check("Menu: then the menu page link (Phase 8)", link?.type === "text" && /^Yahan se items select karein 👉 \S+\/m\//.test(link.body ?? ""), link);
+        check("Menu: then the bot's text", after?.type === "text" && !!after.body && !(after.body ?? "").includes("/m/"), after);
+        check("Menu: image delivered through the Graph API", first?.status === "sent", first);
+        await text(h, "location bhejo");
+        const pin = await reply(h, 4);
+        check("Location: pin with the branch coordinates", pin?.type === "location" && (pin.body ?? "").includes("24.8138, 67.0299"), pin);
+      })(),
+      (async () => {
+        // I. Phase 8: cart from the menu page API → code on WhatsApp → loaded by code → summary → Confirm.
+        log("I. menu page code");
+        const i = "923001110009";
+        const { data: rest } = await admin.from("restaurants").select("slug").eq("id", t.restaurantId).single();
+        const res = await fetch(new URL("/api/public/cart-drafts", endpoint), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            slug: rest!.slug,
+            branchId: t.openBranchId,
+            orderType: "pickup",
+            language: "en",
+            lines: [
+              { itemId: t.itemIds["Zinger Burger"], quantity: 2 },
+              { itemId: t.itemIds["Raita"], quantity: 1 },
+            ],
+          }),
+        });
+        const draft = (await res.json()) as { ok: boolean; code?: string; subtotal?: number };
+        check("Menu page API: cart saved with a code and engine prices (1,100 + 80)", res.status === 200 && !!draft.code && draft.subtotal === 118000, draft);
+        if (!draft.code) return;
+        await text(i, `Hi! Mera order code: ${draft.code} 🛒\n2x Zinger Burger\n1x Raita\n(Pickup)`, "Hina");
+        const loaded = await reply(i, 1);
+        check(
+          "Code → the bot lists the loaded items, then asks what's missing",
+          (loaded?.body ?? "").startsWith("🛒 Aap ka order mil gaya: 2x Zinger Burger, 1x Raita."),
+          loaded?.body,
+        );
+        await text(i, "cash, naam Hina, bas");
+        const summary = await reply(i, 2);
+        check("Then the normal summary with the engine total (Rs 1,180) and Confirm", (summary?.body ?? "").includes("Rs 1,180") && buttons(summary?.body).includes("✅ Confirm"), summary?.body);
+        await button(i, "confirm", "✅ Confirm");
+        const done = await reply(i, 3);
+        check("Confirm → order placed", /^✅ Order #\d+ mil gaya!/.test(done?.body ?? ""), done?.body);
+        const conv = await conversationOf(i);
+        const { data: sessions } = await admin.from("bot_sessions").select("order_id").eq("conversation_id", conv!.id);
+        const orderIds = (sessions ?? []).map((x) => x.order_id).filter(Boolean) as string[];
+        const { data: orders } = await admin.from("orders").select("total, order_type").in("id", orderIds.length ? orderIds : ["00000000-0000-0000-0000-000000000000"]);
+        check("Exactly one order from the menu page cart, Rs 1,180 pickup", orders?.length === 1 && orders[0].total === 118000 && orders[0].order_type === "pickup", orders);
+        await text(i, `Hi! Mera order code: ${draft.code}`);
+        const again = await reply(i, 4);
+        check("The same code again → expired message", (again?.body ?? "").startsWith("Ye order code expire ho gaya hai"), again?.body);
+      })(),
+      (async () => {
         log("G. photo");
         const g = "923001110007";
         await post(g, { type: "image", image: { id: "IMGFAKE1", mime_type: "image/png" } });
