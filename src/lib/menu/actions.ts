@@ -22,12 +22,14 @@ import {
 } from "@/lib/validation/menu";
 import { computeBulkPrices } from "./bulk-price";
 import { MENU_IMAGE_BUCKET } from "./image-constants";
+import { revalidatePublicMenu } from "./public-cache";
 import { getPriceRows } from "./queries";
 
 const idSchema = z.uuid();
 
-function revalidateMenu() {
+function revalidateMenu(restaurantId: string) {
   revalidatePath("/menu", "layout");
+  revalidatePublicMenu(restaurantId);
 }
 
 // ---------------------------------------------------------------------------
@@ -60,7 +62,7 @@ export async function saveCategory(input: CategoryInput): Promise<ActionResult<{
         entityId: data.id,
         newData: { name: v.name, is_active: v.isActive },
       });
-      revalidateMenu();
+      revalidateMenu(ctx.restaurant.id);
       return { ok: true, data: { id: data.id } };
     }
 
@@ -91,7 +93,7 @@ export async function saveCategory(input: CategoryInput): Promise<ActionResult<{
       entityId: data.id,
       newData: { name: v.name },
     });
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true, data: { id: data.id } };
   } catch (err) {
     return failure(err, "Couldn't save the category. Please try again.");
@@ -121,7 +123,7 @@ export async function archiveCategory(categoryId: string): Promise<ActionResult>
       entityId: data.id,
       oldData: { name: data.name },
     });
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't remove the category. Please try again.");
@@ -138,7 +140,7 @@ export async function reorderCategories(ids: string[]): Promise<ActionResult> {
       p_ids: parsed,
     });
     if (error) throw error;
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't save the new order.");
@@ -147,13 +149,13 @@ export async function reorderCategories(ids: string[]): Promise<ActionResult> {
 
 export async function reorderItems(categoryId: string, ids: string[]): Promise<ActionResult> {
   try {
-    await requirePermission("menu.edit");
+    const ctx = await requirePermission("menu.edit");
     const cat = idSchema.parse(categoryId);
     const parsed = z.array(z.uuid()).max(500).parse(ids);
     const supabase = await createClient();
     const { error } = await supabase.rpc("reorder_menu_items", { p_category_id: cat, p_ids: parsed });
     if (error) throw error;
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't save the new order.");
@@ -179,7 +181,7 @@ export async function setItemStock(itemId: string, isAvailable: boolean): Promis
       p_is_available: z.boolean().parse(isAvailable),
     });
     if (error) throw error;
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't change stock. Please try again.");
@@ -342,7 +344,7 @@ export async function saveItem(input: ItemInput): Promise<ActionResult<{ id: str
       });
     }
 
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true, data: { id: itemId } };
   } catch (err) {
     return failure(err, "Couldn't save the item. Please try again.");
@@ -372,7 +374,7 @@ export async function archiveItem(itemId: string): Promise<ActionResult> {
       entityId: data.id,
       oldData: { name: data.name },
     });
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't remove the item. Please try again.");
@@ -446,7 +448,7 @@ export async function saveGroup(input: GroupInput): Promise<ActionResult<{ id: s
         newData: { group: v.name, prices: Object.fromEntries(changed.map((c) => [c.name, c.new])) },
       });
     }
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true, data: { id: groupId } };
   } catch (err) {
     return failure(err, "Couldn't save. Please try again.");
@@ -475,7 +477,7 @@ export async function archiveGroup(groupId: string): Promise<ActionResult> {
       entityId: data.id,
       oldData: { name: data.name },
     });
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't remove the group. Please try again.");
@@ -524,7 +526,7 @@ export async function applyBulkPriceUpdate(input: BulkPriceInput): Promise<Actio
       },
     });
     if (error) throw error;
-    revalidateMenu();
+    revalidateMenu(ctx.restaurant.id);
     return { ok: true, data: { count } };
   } catch (err) {
     return failure(err, "Couldn't update prices. Nothing was changed.");
