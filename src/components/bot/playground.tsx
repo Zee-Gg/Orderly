@@ -22,12 +22,15 @@ import {
 } from "@/lib/bot/playground-actions";
 import type { PlaygroundSession, PlaygroundTurn, PlaygroundVoice } from "@/lib/bot/playground-shared";
 import type { BotButton } from "@/lib/bot/agent";
+import type { BotMedia } from "@/lib/bot/types";
 
 type RestaurantOption = { id: string; name: string; branches: { id: string; name: string; isOpen: boolean }[] };
 type ChatEntry = {
   role: "customer" | "bot" | "system";
   text: string;
   buttons?: BotButton[] | null;
+  /** Image / PDF / location the bot sent (shown like WhatsApp). */
+  media?: BotMedia;
   /** A recorded voice note (blob URL) and what the transcriber heard. */
   audioUrl?: string;
   transcript?: string | null;
@@ -48,6 +51,47 @@ function withBold(text: string) {
   return text.split(/(\*[^*\n]+\*)/g).map((part, i) =>
     part.length > 2 && part.startsWith("*") && part.endsWith("*") ? <strong key={i}>{part.slice(1, -1)}</strong> : part,
   );
+}
+
+function mediaEntries(media: BotMedia[] | undefined): ChatEntry[] {
+  return (media ?? []).map((m) => ({ role: "bot", text: m.kind === "text" ? m.text : "", media: m.kind === "text" ? undefined : m }));
+}
+
+/** What the customer sees on WhatsApp: a photo, a PDF file, or a location card. */
+function MediaBubble({ media }: { media: BotMedia }) {
+  const box = "flex max-w-[85%] flex-col gap-1 overflow-hidden rounded-card bg-surface text-sm shadow-card";
+  if (media.kind === "image") {
+    return (
+      <figure className={box} data-testid="media-image">
+        {/* eslint-disable-next-line @next/next/no-img-element -- remote menu/photo URL, shown as-is like WhatsApp */}
+        <img src={media.url} alt={media.caption ?? "Image"} className="max-h-80 w-64 max-w-full object-cover" loading="lazy" />
+        {media.caption ? <figcaption dir="auto" className="px-3 pb-2">{withBold(media.caption)}</figcaption> : null}
+      </figure>
+    );
+  }
+  if (media.kind === "document") {
+    return (
+      <div className={cn(box, "px-3 py-2")} data-testid="media-document">
+        <a href={media.url} target="_blank" rel="noreferrer" className="flex min-h-touch items-center gap-2 font-semibold text-[#027eb5] underline">
+          📄 {media.fileName}
+        </a>
+        {media.caption ? <span dir="auto">{withBold(media.caption)}</span> : null}
+      </div>
+    );
+  }
+  if (media.kind === "location") {
+    const link = `https://www.google.com/maps?q=${media.latitude},${media.longitude}`;
+    return (
+      <div className={cn(box, "px-3 py-2")} data-testid="media-location">
+        <span className="font-semibold">📍 {media.name}</span>
+        {media.address ? <span className="text-muted">{media.address}</span> : null}
+        <a href={link} target="_blank" rel="noreferrer" className="flex min-h-touch items-center text-[#027eb5] underline">
+          Open in Google Maps ({media.latitude.toFixed(5)}, {media.longitude.toFixed(5)})
+        </a>
+      </div>
+    );
+  }
+  return null;
 }
 
 export function BotPlayground({
@@ -145,6 +189,7 @@ export function BotPlayground({
       if (t.orderCreated) setOrders((o) => [t.orderCreated!, ...o]);
       setChat((c) => [
         ...c,
+        ...mediaEntries(t.media),
         t.replyText
           ? { role: "bot", text: t.replyText, buttons: t.showButtons }
           : { role: "system", text: t.handedOff ? "Handed off to staff — the bot stays quiet in this chat." : "(no reply)" },
@@ -206,6 +251,7 @@ export function BotPlayground({
       const reply = t?.replyText ?? body.replyText ?? null;
       setChat((c) => [
         ...c,
+        ...mediaEntries(t?.media),
         reply
           ? { role: "bot", text: reply, buttons: t?.showButtons ?? null }
           : { role: "system", text: t?.handedOff ? "Handed off to staff — the bot stays quiet in this chat." : "(no reply)" },
@@ -294,7 +340,9 @@ export function BotPlayground({
                 </p>
               ) : (
                 <div key={i} className={cn("flex flex-col gap-1.5", e.role === "customer" ? "items-end" : "items-start")}>
-                  {e.audioUrl ? (
+                  {e.media ? (
+                    <MediaBubble media={e.media} />
+                  ) : e.audioUrl ? (
                     <div className="flex max-w-[85%] flex-col gap-1 rounded-card bg-[#d9fdd3] px-3 py-2 text-sm shadow-card" data-testid="voice-bubble">
                       <span className="text-xs font-semibold text-muted">{e.text}</span>
                       <audio controls src={e.audioUrl} className="h-11 w-64 max-w-full" aria-label="Voice note" />
