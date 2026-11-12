@@ -368,8 +368,13 @@ Migration `20261118100000_menu_page.sql`. The page `/m/[slug]` builds a cart; th
 - `menu_page_views`: (restaurant_id, branch_id, day) → views. RPC `record_menu_page_view(restaurant_id, branch_id)` (service role; today in the restaurant's time zone). Owners/managers read.
 - RPC `get_public_menu_info(slug, branch_id?)` (anon + authenticated): restaurant (name, slug, logo, time zone), active branches (hours, open switch, delivery fee, minimum order, prep + delivery minutes), the chosen/default branch (WhatsApp account's branch, else the first), WhatsApp display number, offers not yet ended, bestseller item ids (tagged first, then 30-day top sellers). Only trial/active restaurants. No prices: the page takes them from the pricing engine (`getBranchMenu`).
 
-## Phase 9 — Reports
-No new tables at first: SQL views / RPCs over `orders` and `order_items` (daily sales, top items, busy hours), filtered by `restaurant_id` and branch access. Add materialized daily rollups only if needed for speed.
+## Phase 11 — Reports ✅
+Migration `20261122100000_reports.sql`. No new tables: read-only RPCs (security invoker, so RLS applies) that aggregate `orders`, `order_items`, `bot_sessions`, `cart_drafts`, `menu_page_views`, `rider_profiles`, `customers`.
+- **Sales = status `delivered` or `completed`.** Cancelled/failed counted separately; `pending_confirmation` ignored. Dates = `created_at` in the restaurant's time zone.
+- Guard `private.report_scope(restaurant, branch|null, from, to)` → time zone: owner/manager (super admin) only; null branch (all branches) = owner only; ≤ 400 days.
+- `report_overview`, `report_daily`, `report_hours`, `report_items`, `report_riders`, `report_top_customers`, `report_bot`, `report_branches`, `report_orders_export`. Helpers `private.mask_phone(text)`, `private.report_channel(source, created_by, order_id)`.
+- Indexes: `orders (branch_id, created_at)`, `orders (rider_id, created_at) where rider_id is not null`, `bot_sessions (restaurant_id, created_at)`. Add daily rollups only if these get slow.
+- Exports are logged in `audit_logs` (`report.exported`).
 
 ## Out of MVP scope (leave room, don't build)
 Inventory, recipe costing, accounting, payroll, loyalty points, marketing campaigns, foodpanda integration, online payment gateways.
