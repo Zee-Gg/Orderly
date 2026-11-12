@@ -7,7 +7,11 @@ import { getModel } from "./model";
 import { dynamicPrompt, staticPrompt } from "./prompt";
 import { t } from "./texts";
 import { createAiTools, runTool, type BotContext, type ToolCallLog } from "./tools";
-import type { BotSession, BotStore, CustomerInfo } from "./types";
+import { findCodesInText, mentionsOrderCode } from "@/lib/menu-page/code";
+import { menuPageUrl } from "@/lib/menu-page/links";
+import { detectOrderCode, draftUsable, loadDraftIntoCart } from "./cart-draft";
+import { currentOffers, priceLabel } from "./tools/knowledge-tools";
+import type { BotMedia, BotPaymentMethod, BotSession, BotStore, CartDraft, CustomerInfo } from "./types";
 
 /**
  * One customer turn: load state → (rules that need no AI) → model + tools
@@ -52,6 +56,8 @@ export type BotTurnResult = {
   provider: AiProvider;
   model: string;
   error: { type: "rate_limit" | "timeout" | "error"; message: string } | null;
+  /** Images, PDFs, location pins, extra texts to send BEFORE replyText (Phase 7C). */
+  media: BotMedia[];
 };
 
 export type AgentDeps = {
@@ -94,7 +100,7 @@ function isTimeoutError(err: unknown): boolean {
   return !!e && (e.name === "TimeoutError" || e.name === "AbortError" || /timed? ?out|aborted/i.test(e.message));
 }
 
-function buttonsFor(session: BotSession, lang: BotSession["language"]): BotButton[] | null {
+function buttonsFor(session: BotSession, lang: BotSession["language"], payments: BotPaymentMethod[] = ["cod", "card_on_delivery"]): BotButton[] | null {
   const b = t(lang).buttons;
   if (session.status === "handed_off" || session.stage === "done") return null;
   switch (session.stage) {
@@ -109,11 +115,14 @@ function buttonsFor(session: BotSession, lang: BotSession["language"]): BotButto
         { id: "order_type_delivery", title: b.delivery },
         { id: "order_type_pickup", title: b.pickup },
       ];
-    case "choosing_payment":
-      return [
-        { id: "payment_cod", title: b.cod },
-        { id: "payment_card", title: b.card },
+    case "choosing_payment": {
+      // Only what the restaurant accepts.
+      const options = [
+        ...(payments.includes("cod") ? [{ id: "payment_cod", title: b.cod }] : []),
+        ...(payments.includes("card_on_delivery") ? [{ id: "payment_card", title: b.card }] : []),
       ];
+      return options.length > 1 ? options : null;
+    }
     default:
       return null;
   }
@@ -172,6 +181,7 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
       provider,
       model: "",
       error: null,
+      media: [],
     };
   }
   if (session && !OPEN_STATUSES.has(session.status)) session = null; // completed/abandoned → new order
@@ -194,7 +204,15 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
     .split("\n")
     .filter((line) => !line.startsWith("[voice note]"))
     .join("\n");
-  const detected = input.buttonId ? null : detectLanguage(typed.replace(/\[[^\]]*\]/g, " "));
+  // A menu-page code message is written by our page, not typed: only Urdu script (the Urdu page) counts.
+  const pageMessage = mentionsOrderCode(typed) && findCodesInText(typed).length > 0;
+  const detected = input.buttonId
+    ? null
+    : pageMessage
+      ? /[؀-ۿ]/.test(typed)
+        ? "urdu"
+        : null
+      : detectLanguage(typed.replace(/\[[^\]]*\]/g, " "));
   if (detected) s.language = detected;
   if (customer && detected && customer.preferredLanguage !== detected) {
     await store.setCustomerLanguage(s.restaurantId, customer.id, detected);
@@ -211,7 +229,10 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
 
   // The tool context (once created) may hold an updated customer (name saved).
   let ctxRef: BotContext | null = null;
-  const finish = async (replyText: string | null, extra: { order?: BotTurnResult["orderCreated"]; handedOff?: boolean; ai?: boolean } = {}) => {
+  const finish = async (
+    replyText: string | null,
+    extra: { order?: BotTurnResult["orderCreated"]; handedOff?: boolean; ai?: boolean; buttons?: BotButton[] } = {},
+  ) => {
     if (s.status !== "handed_off" && s.status !== "completed" && s.status !== "abandoned") {
       s.stage = computeStage(s, ctxRef?.customer ?? customer);
     }
@@ -243,7 +264,7 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
     return {
       sessionId: s.id,
       replyText,
-      showButtons: replyText ? buttonsFor(s, s.language) : null,
+      showButtons: replyText ? (extra.buttons ?? buttonsFor(s, s.language, restaurant.paymentMethods)) : null,
       orderCreated: extra.order ?? null,
       handedOff: extra.handedOff ?? s.status === "handed_off",
       session: s,
@@ -254,6 +275,7 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
       provider,
       model: modelId,
       error,
+      media: ctxRef?.effects.media ?? [],
     };
   };
 
@@ -263,6 +285,62 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
   }
   if (!restaurant.botEnabled || s.status === "handed_off") {
     return finish(null, { handedOff: true }); // staff answer this chat
+  }
+
+  // --- Menu-page order code (Phase 8): CODE loads the cart, then the AI continues.
+  const menuUrl = menuPageUrl(restaurant.slug);
+  let aiText = text; // what the model reads as the customer's message
+  let replyPrefix: string | null = null; // code-written first part of the reply
+  {
+    const tx0 = t(s.language);
+    let toLoad: { draft: CartDraft; mode: "replace" | "add" } | null = null;
+    if ((input.buttonId === "cart_replace" || input.buttonId === "cart_add") && s.pendingCartCode) {
+      const pending = await store.findCartDraft(s.restaurantId, s.pendingCartCode);
+      s.pendingCartCode = null;
+      if (!pending || !draftUsable(pending, nowFn())) return finish(tx0.codeExpired(menuUrl));
+      toLoad = { draft: pending, mode: input.buttonId === "cart_replace" ? "replace" : "add" };
+    } else if (!input.buttonId && text) {
+      const found = await detectOrderCode(store, s.restaurantId, text);
+      if (found.kind === "unknown" || (found.kind === "draft" && !draftUsable(found.draft, nowFn()))) {
+        return finish(tx0.codeExpired(menuUrl));
+      }
+      if (found.kind === "draft") {
+        if (s.cart.length && !s.orderId) {
+          // Already ordering in the chat: ask before touching that cart.
+          s.pendingCartCode = found.draft.code;
+          return finish(tx0.cartReplaceOrAdd, {
+            buttons: [
+              { id: "cart_replace", title: tx0.buttons.replace },
+              { id: "cart_add", title: tx0.buttons.add },
+            ],
+          });
+        }
+        toLoad = { draft: found.draft, mode: "replace" };
+      }
+    }
+    if (toLoad) {
+      const claimed = await store.claimCartDraft(s.restaurantId, toLoad.draft.id, { customerId: s.customerId, sessionId: s.id, now: nowFn() });
+      if (!claimed) return finish(tx0.codeExpired(menuUrl)); // used a moment ago (double send)
+      let draft = toLoad.draft;
+      // A branch that closed down since → keep the chat's branch.
+      if (toLoad.mode === "replace" && draft.branchId !== s.branchId && !(await store.getBranch(s.restaurantId, draft.branchId, nowFn()))) {
+        draft = { ...draft, branchId: s.branchId };
+      }
+      if (toLoad.mode === "add") draft = { ...draft, branchId: s.branchId };
+      const names = new Map(
+        (await store.getMenu(s.restaurantId, draft.branchId)).categories.flatMap((c) => c.items).map((i) => [i.id, { name: i.name, nameUr: i.nameUr }]),
+      );
+      const { loaded, skipped } = await loadDraftIntoCart(store, s, draft, toLoad.mode, names);
+      if (!loaded.length) return finish(tx0.cartNothingAvailable(skipped));
+      replyPrefix = tx0.cartLoaded(loaded, skipped);
+      aiText = [
+        `[The customer sent order code ${draft.code} from our menu page. The system ALREADY loaded their cart (${loaded.join(", ")})`,
+        skipped.length ? ` and told them these are not available: ${skipped.join(", ")}` : "",
+        ". They have seen the list. Do NOT add these items again and do not repeat the list.",
+        " Ask only the next missing thing in one short line (order type, delivery address, payment, name),",
+        " or call show_order_summary if nothing is missing.]",
+      ].join("");
+    }
   }
 
   const branch = await store.getBranch(s.restaurantId, s.branchId, nowFn());
@@ -277,7 +355,7 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
     customer,
     now: nowFn,
     menu: async () => (menuIndex ??= buildMenuIndex(await store.getMenu(s.restaurantId, s.branchId))),
-    effects: { summary: null, order: null, handedOff: false, cancelled: false },
+    effects: { summary: null, order: null, handedOff: false, cancelled: false, media: [] },
   };
   ctxRef = ctx;
 
@@ -339,17 +417,23 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
   modelId = model.modelId;
 
   const idx = await ctx.menu();
+  // New chat: mention ONE current offer (once per session), if the owner wants that.
+  let greetingOffer: { title: string; price: string | null } | null = null;
+  if (!history.length && restaurant.mentionOfferOnGreeting) {
+    const offers = await currentOffers(ctx).catch(() => []);
+    if (offers[0]) greetingOffer = { title: s.language === "urdu" && offers[0].offer.titleUr ? offers[0].offer.titleUr : offers[0].offer.title, price: priceLabel(offers[0].item) };
+  }
   const instructions: SystemModelMessage[] = [
     {
       role: "system",
       content: staticPrompt(restaurant, idx),
       ...(SUPPORTS_CACHE_CONTROL[provider] ? { providerOptions: { anthropic: { cacheControl: { type: "ephemeral" } } } } : {}),
     },
-    { role: "system", content: dynamicPrompt({ session: s, branch, customer }) },
+    { role: "system", content: dynamicPrompt({ session: s, branch, customer, greetingOffer }) },
   ];
   const messages: ModelMessage[] = [
     ...history.map((e): ModelMessage => (e.role === "customer" ? { role: "user", content: e.text } : { role: "assistant", content: e.text })),
-    { role: "user", content: text },
+    { role: "user", content: aiText },
   ];
 
   // Tools change the session in memory: keep a copy so a retry starts clean.
@@ -390,7 +474,7 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
       // Undo half-done tool work before retrying or giving up.
       Object.assign(s, structuredClone(snapshot));
       ctx.customer = customerSnapshot;
-      ctx.effects = { summary: null, order: null, handedOff: false, cancelled: false };
+      ctx.effects = { summary: null, order: null, handedOff: false, cancelled: false, media: [] };
       if ((rateLimited || isOverloadedError(err)) && tryNo === 0) {
         console.warn(`[bot] ${rateLimited ? "rate limited" : "provider busy"}, retrying once`, error.message.slice(0, 200));
         await sleep(BOT_LIMITS.rateLimitRetryMs);
@@ -425,6 +509,10 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
   else if (ctx.effects.handedOff || status() === "handed_off") reply = tx.handedOff;
   else {
     reply = scrubRefs(result.text.trim(), idx, s.cart).trim() || tx.notUnderstood;
+    // First message of a new chat, nothing ordered yet: one line with the menu page link.
+    const linkSent = ctx.effects.media.some((m) => m.kind === "text" && m.text.includes(menuUrl));
+    if (!history.length && !s.cart.length && !replyPrefix && !linkSent) reply = `${reply}\n\n${tx.menuLinkLine(menuUrl)}`;
   }
+  if (replyPrefix) reply = `${replyPrefix}\n\n${reply}`;
   return finish(reply, { order: ctx.effects.order, handedOff: status() === "handed_off", ai: true });
 }
