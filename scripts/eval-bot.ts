@@ -4,6 +4,9 @@
  *   npm run eval:bot [-- --provider google|anthropic|groq] [--only id,category] [--delay 2000] [--verbose]
  *                    [--cases tests/bot-eval/corrections/<date>.json]
  *
+ * Every case runs at a fixed restaurant time (default Sunday 13:00 Karachi,
+ * when no demo offer is active), or at its own `at` (Phase 7C offer cases).
+ *
  * Prints a score per category and overall, lists failures, and saves
  * test-results/bot-eval-<date>.json (with cost and latency per conversation).
  */
@@ -11,6 +14,9 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
 import { runBotTurn, type BotTurnResult } from "../src/lib/bot/agent";
+import { cartSubtotal } from "../src/lib/bot/cart";
+import type { BotMedia, BotStore } from "../src/lib/bot/types";
+import { generateCode } from "../src/lib/menu-page/code";
 import { activeProvider, AI_PROVIDERS, modelFor, type AiProvider } from "../src/lib/bot/config";
 import { createSupabaseBotStore } from "../src/lib/bot/store";
 import { createBotTestRestaurant, type BotTestRestaurant } from "../src/lib/bot/testing/test-restaurant";
@@ -26,8 +32,26 @@ type Case = {
   description?: string;
   branch?: "open" | "closed";
   customer?: { name?: string | null; previous_order?: boolean };
+  /** Restaurant local time (Asia/Karachi), e.g. "2026-11-06T13:00" (a Friday). */
+  at?: string;
+  /** Phase 7C: what the restaurant uploaded for this case (no DB rows: the store is wrapped). */
+  setup?: {
+    menu_images?: number;
+    menu_pdf?: boolean;
+    photos?: string[];
+    /** Phase 8: a cart sent from the menu page. Turns use {CODE} / {code} for its code. */
+    draft?: { lines: { item: string; size?: string; quantity: number }[]; order_type?: "delivery" | "pickup"; expired?: boolean };
+  };
   turns: Turn[];
   expect: {
+    /** Every one of these tools was called (any turn). */
+    tools_include?: string[];
+    /** None of these tools was called. */
+    tools_none?: string[];
+    /** Media sent to the customer: kinds that must appear, a caption, or none at all. */
+    media?: { kinds?: BotMedia["kind"][]; caption_includes?: string; none?: boolean };
+    /** Cart subtotal in paisa (prices from the pricing engine). */
+    subtotal?: number;
     cart?: ExpectedLine[];
     behavior?: "ask_clarification" | "handoff" | "refuse" | "closed_message" | "order_status" | "order_placed" | "not_on_menu" | "out_of_stock";
     reply_any?: string[];
@@ -62,6 +86,62 @@ const admin: SupabaseClient<Database> = createClient<Database>(url, process.env.
   auth: { persistSession: false, autoRefreshToken: false },
 });
 const store = createSupabaseBotStore(admin);
+/** Sunday 13:00 in Karachi: no demo offer is active, the open branch is open. */
+const DEFAULT_AT = "2026-11-08T13:00";
+/** Categories added in Phase 7C (reported separately). */
+const KNOWLEDGE_CATEGORIES = new Set(["menu_media", "item_photo", "bestsellers", "offers", "faq", "location", "greeting_offer"]);
+/** Categories added in Phase 8 (reported separately). */
+const MENU_PAGE_CATEGORIES = new Set(["menu_page"]);
+
+/** Save a menu-page cart draft for this case; returns its code. */
+async function makeDraft(t: BotTestRestaurant, d: NonNullable<NonNullable<Case["setup"]>["draft"]>, now: Date): Promise<string> {
+  const lines = [];
+  for (const l of d.lines) {
+    const itemId = t.itemIds[l.item];
+    if (!itemId) throw new Error(`draft: unknown item ${l.item}`);
+    let variantId: string | null = null;
+    if (l.size) {
+      const { data } = await admin.from("item_variants").select("id").eq("item_id", itemId).eq("name", l.size).single();
+      variantId = data!.id;
+    }
+    lines.push({ item_id: itemId, variant_id: variantId, option_ids: [], removals: [], quantity: l.quantity, notes: "" });
+  }
+  const created = d.expired ? new Date(now.getTime() - 3 * 3600_000) : now;
+  for (let i = 0; i < 10; i++) {
+    const code = generateCode(i < 5 ? 4 : 5);
+    const { error } = await admin.from("cart_drafts").insert({
+      code,
+      restaurant_id: t.restaurantId,
+      branch_id: t.openBranchId,
+      order_type: d.order_type ?? null,
+      lines,
+      created_at: created.toISOString(),
+      expires_at: new Date(created.getTime() + 2 * 3600_000).toISOString(),
+    });
+    if (!error) return code;
+    if (error.code !== "23505") throw new Error(`draft: ${error.message}`);
+  }
+  throw new Error("draft: no free code");
+}
+
+/** Menu images / dish photos for one case, without touching the shared restaurant. */
+function storeFor(c: Case): BotStore {
+  const setup = c.setup;
+  if (!setup) return store;
+  return {
+    ...store,
+    async getMenuMedia() {
+      return [
+        ...Array.from({ length: setup.menu_images ?? 0 }, (_, i) => ({ type: "image" as const, url: `https://cdn.example.com/menu-${i + 1}.jpg`, fileName: `menu-${i + 1}.jpg` })),
+        ...(setup.menu_pdf ? [{ type: "pdf" as const, url: "https://cdn.example.com/menu.pdf", fileName: "Menu.pdf" }] : []),
+      ];
+    },
+    async getItemPhotoUrl(restaurantId, itemId) {
+      const { data: item } = await admin.from("menu_items").select("name").eq("restaurant_id", restaurantId).eq("id", itemId).single();
+      return item && setup.photos?.includes(item.name) ? `https://cdn.example.com/photos/${itemId}.jpg` : null;
+    },
+  };
+}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Options the engine picks by itself (required choice defaults) — ignored unless a case names them.
@@ -120,15 +200,21 @@ async function runCase(t: BotTestRestaurant, c: Case): Promise<CaseResult> {
   const tokens = { input: 0, output: 0 };
   let rateLimited = 0;
   let last: BotTurnResult | null = null;
+  const media: BotMedia[] = [];
+  const now = new Date(`${(c.at ?? DEFAULT_AT).slice(0, 16)}:00+05:00`);
+  const caseStore = storeFor(c);
+  const code = c.setup?.draft ? await makeDraft(t, c.setup.draft, now) : null;
+  const withCode = (m: string) => (code ? m.replaceAll("{CODE}", code).replaceAll("{code}", code.toLowerCase()) : m);
 
   for (const turn of c.turns) {
-    const messages = Array.isArray(turn) ? turn : [turn.text ?? turn.button];
+    const messages = (Array.isArray(turn) ? turn : [turn.text ?? turn.button]).map(withCode);
     const buttonId = Array.isArray(turn) ? null : turn.button;
     const res: BotTurnResult = await runBotTurn(
       { restaurantId: t.restaurantId, branchId, sessionId, customerId, customerMessages: messages, buttonId },
-      { store, provider },
+      { store: caseStore, provider, now: () => now },
     );
     last = res;
+    media.push(...res.media);
     sessionId = res.sessionId;
     replies.push(res.replyText ?? "");
     tools.push(res.toolCalls.map((x) => `${x.tool}${x.output.ok ? "" : `!${(x.output as { error: string }).error}`}`));
@@ -145,6 +231,7 @@ async function runCase(t: BotTestRestaurant, c: Case): Promise<CaseResult> {
       console.log(`    > ${messages.join(" / ")}${buttonId ? ` [${buttonId}]` : ""}`);
       console.log(`    < ${(res.replyText ?? "(no reply)").replace(/\n/g, "\n      ")}`);
       console.log(`      tools: ${tools.at(-1)!.join(", ") || "-"}`);
+      for (const m of res.media) console.log(`      [${m.kind}] ${m.kind === "text" ? m.text.slice(0, 80) : m.kind === "location" ? m.name : (m.caption ?? "")}`);
     }
   }
 
@@ -236,6 +323,16 @@ async function runCase(t: BotTestRestaurant, c: Case): Promise<CaseResult> {
     const hit = e.reply_none.find((w) => replies.join("\n").toLowerCase().includes(w.toLowerCase()));
     if (hit) problems.push(`reply contains "${hit}"`);
   }
+  const called = allTools.map((x) => x.split("!")[0]);
+  for (const tool of e.tools_include ?? []) if (!called.includes(tool)) problems.push(`did not call ${tool}`);
+  for (const tool of e.tools_none ?? []) if (called.includes(tool)) problems.push(`called ${tool}`);
+  if (e.media?.none && media.some((m) => m.kind !== "text")) problems.push(`sent media: ${media.map((m) => m.kind).join(", ")}`);
+  for (const kind of e.media?.kinds ?? []) if (!media.some((m) => m.kind === kind)) problems.push(`no ${kind} sent`);
+  if (e.media?.caption_includes) {
+    const captions = media.map((m) => (m.kind === "image" || m.kind === "document" ? (m.caption ?? "") : m.kind === "text" ? m.text : ""));
+    if (!captions.some((x) => x.toLowerCase().includes(e.media!.caption_includes!.toLowerCase()))) problems.push(`no media caption with "${e.media.caption_includes}"`);
+  }
+  if (e.subtotal !== undefined && cartSubtotal(s.cart) !== e.subtotal) problems.push(`cart subtotal ${cartSubtotal(s.cart)} ≠ ${e.subtotal}`);
   if (e.reply_script === "urdu" && !/[؀-ۿ]/.test(replies.at(-1) ?? "")) problems.push("reply is not in Urdu script");
   if (e.customer_name) {
     const { data: cust } = await admin.from("customers").select("name").eq("id", customerId).single();
@@ -302,6 +399,15 @@ async function main() {
 
   console.log("\nScore by category:");
   for (const [cat, x] of [...byCat].sort()) console.log(`  ${cat.padEnd(20)} ${x.pass}/${x.total}  (${pct(x.pass, x.total)}%)`);
+  const knowledge = results.filter((r) => KNOWLEDGE_CATEGORIES.has(r.category));
+  const menuPage = results.filter((r) => MENU_PAGE_CATEGORIES.has(r.category));
+  if (knowledge.length || menuPage.length) {
+    const core = results.filter((r) => !KNOWLEDGE_CATEGORIES.has(r.category) && !MENU_PAGE_CATEGORIES.has(r.category));
+    const n = (rs: CaseResult[]) => `${rs.filter((r) => r.pass).length}/${rs.length} (${pct(rs.filter((r) => r.pass).length, rs.length)}%)`;
+    console.log(`\nOrdering (before 7C): ${n(core)}`);
+    if (knowledge.length) console.log(`Bot knowledge (7C):   ${n(knowledge)}`);
+    if (menuPage.length) console.log(`Menu page codes (8):  ${n(menuPage)}`);
+  }
   console.log(`\nOVERALL: ${passed}/${results.length} (${pct(passed, results.length)}%)`);
   console.log(
     `Per conversation: avg cost $${avg((r) => r.costUsd).toFixed(5)} · avg latency ${(avg((r) => r.latencyMs) / 1000).toFixed(1)}s · avg tokens in ${Math.round(avg((r) => r.tokens.input))} / out ${Math.round(avg((r) => r.tokens.output))}`,
