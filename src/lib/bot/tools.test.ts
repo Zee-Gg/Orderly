@@ -26,7 +26,7 @@ async function setup(opts: { branch?: Partial<BranchInfo>; restaurant?: Partial<
     customer,
     now: () => new Date(),
     menu: async () => (idx ??= buildMenuIndex(m.menu)),
-    effects: { summary: null, order: null, handedOff: false, cancelled: false },
+    effects: { summary: null, order: null, handedOff: false, cancelled: false, media: [] },
   };
   const index = await ctx.menu();
   const ref = (name: string) => index.itemRef.get(m.itemIds[name])!;
