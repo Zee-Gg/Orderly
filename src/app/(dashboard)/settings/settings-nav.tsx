@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bike, Bot, MapPin, MessageCircle, Printer, Store, Users } from "lucide-react";
+import { Bike, Bot, MapPin, MessageCircle, Printer, Store, Users, Zap } from "lucide-react";
 import type { Action } from "@/lib/auth/permissions";
 import { usePermission } from "@/lib/auth/permissions-context";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ const LINKS: { href: string; label: string; icon: typeof Store; permission: Acti
   { href: "/settings/printing", label: "Printing", icon: Printer, permission: "settings.view" },
   { href: "/settings/whatsapp", label: "WhatsApp", icon: MessageCircle, permission: "settings.view" },
   { href: "/settings/bot", label: "Bot knowledge", icon: Bot, permission: "bot.manage" },
+  { href: "/settings/quick-replies", label: "Quick replies", icon: Zap, permission: "inbox.quick_replies" },
 ];
 
 function NavLink({ link }: { link: (typeof LINKS)[number] }) {

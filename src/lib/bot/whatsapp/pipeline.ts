@@ -305,6 +305,11 @@ export function createBotPipeline(deps: PipelineDeps) {
       error: result.error?.type ?? null,
     });
 
+    if (result.orderCreated) {
+      await channel
+        .addSystemLine(restaurantId, conversationId, `Order #${result.orderCreated.orderNumber} created by the bot`, result.orderCreated.id)
+        .catch(() => {});
+    }
     // Handoff first: the chat is with staff before the customer can answer the message.
     if (result.handedOff && result.replyText) {
       await channel.setHandoff(restaurantId, conversationId, result.session.handoffReason ?? "Bot handed off to staff");

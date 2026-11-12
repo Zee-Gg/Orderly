@@ -630,6 +630,48 @@ export type Database = {
           },
         ]
       }
+      conversation_notes: {
+        Row: {
+          body: string
+          conversation_id: string
+          created_at: string
+          id: string
+          restaurant_id: string
+          user_id: string | null
+        }
+        Insert: {
+          body: string
+          conversation_id: string
+          created_at?: string
+          id?: string
+          restaurant_id: string
+          user_id?: string | null
+        }
+        Update: {
+          body?: string
+          conversation_id?: string
+          created_at?: string
+          id?: string
+          restaurant_id?: string
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "conversation_notes_conversation_id_restaurant_id_fkey"
+            columns: ["conversation_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "whatsapp_conversations"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "conversation_notes_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       customer_addresses: {
         Row: {
           address_text: string
@@ -1893,6 +1935,44 @@ export type Database = {
         }
         Relationships: []
       }
+      quick_replies: {
+        Row: {
+          created_at: string
+          id: string
+          restaurant_id: string
+          shortcut: string
+          sort_order: number
+          text: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          restaurant_id: string
+          shortcut: string
+          sort_order?: number
+          text: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          restaurant_id?: string
+          shortcut?: string
+          sort_order?: number
+          text?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quick_replies_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       restaurant_faqs: {
         Row: {
           answer: string
@@ -1943,6 +2023,7 @@ export type Database = {
       restaurants: {
         Row: {
           ai_monthly_budget_usd: number | null
+          auto_resolve_hours: number
           bill_footer: string | null
           bill_header: string | null
           bot_enabled: boolean
@@ -1956,6 +2037,7 @@ export type Database = {
           logo_url: string | null
           mention_offer_on_greeting: boolean
           name: string
+          needs_staff_alert_minutes: number
           payment_methods: string[]
           phone: string | null
           receipt_paper_width: string
@@ -1970,6 +2052,7 @@ export type Database = {
         }
         Insert: {
           ai_monthly_budget_usd?: number | null
+          auto_resolve_hours?: number
           bill_footer?: string | null
           bill_header?: string | null
           bot_enabled?: boolean
@@ -1983,6 +2066,7 @@ export type Database = {
           logo_url?: string | null
           mention_offer_on_greeting?: boolean
           name: string
+          needs_staff_alert_minutes?: number
           payment_methods?: string[]
           phone?: string | null
           receipt_paper_width?: string
@@ -1997,6 +2081,7 @@ export type Database = {
         }
         Update: {
           ai_monthly_budget_usd?: number | null
+          auto_resolve_hours?: number
           bill_footer?: string | null
           bill_header?: string | null
           bot_enabled?: boolean
@@ -2010,6 +2095,7 @@ export type Database = {
           logo_url?: string | null
           mention_offer_on_greeting?: boolean
           name?: string
+          needs_staff_alert_minutes?: number
           payment_methods?: string[]
           phone?: string | null
           receipt_paper_width?: string
@@ -2219,6 +2305,7 @@ export type Database = {
       }
       whatsapp_conversations: {
         Row: {
+          assigned_to: string | null
           bot_enabled: boolean
           bot_lock_until: string | null
           bot_muted_until: string | null
@@ -2231,12 +2318,18 @@ export type Database = {
           last_customer_message_at: string | null
           last_message_at: string | null
           last_message_preview: string | null
+          needs_staff: boolean
+          needs_staff_since: string | null
+          resolved_at: string | null
           restaurant_id: string
           status: Database["public"]["Enums"]["wa_conversation_status"]
+          tags: string[]
+          unread_count: number
           updated_at: string
           wa_id: string
         }
         Insert: {
+          assigned_to?: string | null
           bot_enabled?: boolean
           bot_lock_until?: string | null
           bot_muted_until?: string | null
@@ -2249,12 +2342,18 @@ export type Database = {
           last_customer_message_at?: string | null
           last_message_at?: string | null
           last_message_preview?: string | null
+          needs_staff?: boolean
+          needs_staff_since?: string | null
+          resolved_at?: string | null
           restaurant_id: string
           status?: Database["public"]["Enums"]["wa_conversation_status"]
+          tags?: string[]
+          unread_count?: number
           updated_at?: string
           wa_id: string
         }
         Update: {
+          assigned_to?: string | null
           bot_enabled?: boolean
           bot_lock_until?: string | null
           bot_muted_until?: string | null
@@ -2267,8 +2366,13 @@ export type Database = {
           last_customer_message_at?: string | null
           last_message_at?: string | null
           last_message_preview?: string | null
+          needs_staff?: boolean
+          needs_staff_since?: string | null
+          resolved_at?: string | null
           restaurant_id?: string
           status?: Database["public"]["Enums"]["wa_conversation_status"]
+          tags?: string[]
+          unread_count?: number
           updated_at?: string
           wa_id?: string
         }
@@ -2305,6 +2409,8 @@ export type Database = {
           order_id: string | null
           raw: Json | null
           restaurant_id: string
+          sender_type: string
+          sent_by_user_id: string | null
           status: Database["public"]["Enums"]["wa_message_status"]
           transcribe_provider: string | null
           transcript: string | null
@@ -2327,6 +2433,8 @@ export type Database = {
           order_id?: string | null
           raw?: Json | null
           restaurant_id: string
+          sender_type?: string
+          sent_by_user_id?: string | null
           status: Database["public"]["Enums"]["wa_message_status"]
           transcribe_provider?: string | null
           transcript?: string | null
@@ -2349,6 +2457,8 @@ export type Database = {
           order_id?: string | null
           raw?: Json | null
           restaurant_id?: string
+          sender_type?: string
+          sent_by_user_id?: string | null
           status?: Database["public"]["Enums"]["wa_message_status"]
           transcribe_provider?: string | null
           transcript?: string | null
@@ -2566,6 +2676,7 @@ export type Database = {
         Args: { p_branch_id?: string; p_slug: string }
         Returns: Json
       }
+      inbox_auto_resolve: { Args: { p_restaurant_id: string }; Returns: number }
       is_slug_available: { Args: { p_slug: string }; Returns: boolean }
       record_cod_collection: {
         Args: {

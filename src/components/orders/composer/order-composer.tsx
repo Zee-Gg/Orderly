@@ -32,6 +32,9 @@ import { formatPKR, paisaToInput, parseRupees } from "@/lib/money";
 import { cn } from "@/lib/utils";
 import { ItemPicker, defaultSelection, needsPicker, type ComposerLine } from "./item-picker";
 
+/** Phase 10: start a new order from an inbox chat (customer + the bot's cart). */
+export type ComposerPrefill = Partial<Pick<ComposerEditOrder, "customerName" | "customerPhone" | "orderType" | "paymentMethod" | "addressText" | "area" | "landmark" | "notes" | "lines">>;
+
 export type ComposerEditOrder = {
   id: string;
   version: number;
@@ -70,7 +73,9 @@ export function OrderComposer({
   editOrder,
   zones = {},
   canChangeFee = true,
+  prefill,
 }: {
+  prefill?: ComposerPrefill;
   zones?: ComposerZones;
   /** Without it the fee comes from the area (or the branch default). */
   canChangeFee?: boolean;
@@ -96,7 +101,8 @@ export function OrderComposer({
   const itemById = useMemo(() => new Map(items.map((i) => [i.id, i])), [items]);
 
   // Cart ------------------------------------------------------------------
-  const [lines, setLines] = useState<ComposerLine[]>(() => (editOrder?.lines ?? []).map((l) => ({ ...l, key: newKey() })));
+  const seed: ComposerPrefill | undefined = editOrder ?? prefill;
+  const [lines, setLines] = useState<ComposerLine[]>(() => (seed?.lines ?? []).map((l) => ({ ...l, key: newKey() })));
   const [picker, setPicker] = useState<{ item: BranchMenuItem; line: ComposerLine | null } | null>(null);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   const [previewing, setPreviewing] = useState(false);
@@ -104,18 +110,26 @@ export function OrderComposer({
 
   // Customer & order details ---------------------------------------------
   const [source, setSource] = useState<"phone" | "walk_in">("phone");
-  const [phone, setPhone] = useState(editOrder?.customerPhone ? formatPhone(editOrder.customerPhone) : "");
-  const [name, setName] = useState(editOrder?.customerName ?? "");
+  const [phone, setPhone] = useState(seed?.customerPhone ? formatPhone(seed.customerPhone) : "");
+  const [name, setName] = useState(seed?.customerName ?? "");
   const [found, setFound] = useState<CustomerLookup | null>(null);
   const [lookingUp, setLookingUp] = useState(false);
   const lookupTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
-  const [orderType, setOrderType] = useState<OrderType>(editOrder?.orderType ?? "pickup");
-  const [addressText, setAddressText] = useState(editOrder?.addressText ?? "");
-  const [area, setArea] = useState(editOrder?.area ?? "");
-  const [landmark, setLandmark] = useState(editOrder?.landmark ?? "");
-  const [deliveryFee, setDeliveryFee] = useState(paisaToInput(editOrder?.deliveryFee ?? zones[initialBranchId]?.defaultFee ?? 0));
-  const [zoneId, setZoneId] = useState<string | null>(null);
+  const [orderType, setOrderType] = useState<OrderType>(seed?.orderType ?? "pickup");
+  const [addressText, setAddressText] = useState(seed?.addressText ?? "");
+  const [area, setArea] = useState(seed?.area ?? "");
+  const [landmark, setLandmark] = useState(seed?.landmark ?? "");
+  // A prefilled area (cart from an inbox chat) that matches a zone starts with that zone's fee.
+  const [initialZone] = useState(() =>
+    !editOrder && seed?.area
+      ? findZone((zones[initialBranchId]?.zones ?? []).map((z) => ({ ...z, estimatedMinutes: null, isActive: true })), seed.area)?.zone ?? null
+      : null,
+  );
+  const [deliveryFee, setDeliveryFee] = useState(
+    paisaToInput(editOrder?.deliveryFee ?? initialZone?.deliveryFee ?? zones[initialBranchId]?.defaultFee ?? 0),
+  );
+  const [zoneId, setZoneId] = useState<string | null>(initialZone?.id ?? null);
   const branchZones = zones[branchId]?.zones ?? [];
   function chooseZone(id: string | null, areaText?: string) {
     setZoneId(id);
@@ -129,8 +143,8 @@ export function OrderComposer({
     }
   }
   const [tableNumber, setTableNumber] = useState(editOrder?.tableNumber ?? "");
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(editOrder?.paymentMethod ?? "cod");
-  const [notes, setNotes] = useState(editOrder?.notes ?? "");
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(seed?.paymentMethod ?? "cod");
+  const [notes, setNotes] = useState(seed?.notes ?? "");
   const [discount, setDiscount] = useState(paisaToInput(editOrder?.discount ?? 0));
 
   // Submit ----------------------------------------------------------------

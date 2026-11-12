@@ -342,6 +342,15 @@ Migration `20261117100000_bot_knowledge.sql`. All members read; owner/manager wr
 
 ---
 
+## Phase 10 — WhatsApp inbox ✅
+Migration `20261121100000_inbox.sql`.
+- `whatsapp_conversations`: `assigned_to` (auth user), `needs_staff`, `needs_staff_since`, `unread_count`, `resolved_at`, `tags` (≤ 10). `last_message_at`/`last_message_preview` already existed. Written only by the server.
+- `whatsapp_messages`: `sender_type` (customer | bot | staff | system), `sent_by_user_id`. Outbound `raw` = the content sent (retry). System lines: `sender_type = system`, no `wa_message_id`, never sent.
+- `conversation_notes`: id, restaurant_id, conversation_id, user_id, body, created_at. Front of house read; insert own.
+- `quick_replies`: id, restaurant_id, shortcut (`/time`), text, sort_order. Front of house read; owner/manager write. Six defaults seeded for every restaurant (trigger on new restaurants).
+- `restaurants.auto_resolve_hours` (default 6), `needs_staff_alert_minutes` (default 3).
+- `whatsapp_record_inbound` now: unread +1, reopens resolved chats with the bot on, auto-resolves a staff chat quiet for `auto_resolve_hours`. RPC `inbox_auto_resolve(restaurant_id)` (service role) = the same sweep.
+
 ## Phase 7 — Payments (records only, no gateways in MVP)
 
 ### `payments`

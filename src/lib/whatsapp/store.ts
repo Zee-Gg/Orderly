@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
 import { MEDIA_BUCKET } from "./config";
 import type { InboundMessage, StatusUpdate, WaMessageStatus } from "./payload";
 
@@ -48,6 +48,11 @@ export type OutboundRow = {
   status: Extract<WaMessageStatus, "sent" | "failed" | "skipped">;
   waMessageId?: string | null;
   error?: string | null;
+  /** Phase 10: who sent it (default: system for order updates, else bot). */
+  senderType?: "bot" | "staff" | "system";
+  sentByUserId?: string | null;
+  /** What was sent (lets the inbox retry a failed message exactly). */
+  content?: Record<string, unknown> | null;
 };
 
 /** A customer file saved to Storage (or why it wasn't). */
@@ -186,6 +191,9 @@ export function createSupabaseStore(db: Db): WhatsAppStore {
           status: row.status,
           wa_message_id: row.waMessageId ?? null,
           error: row.error?.slice(0, 1000) ?? null,
+          sender_type: row.senderType ?? (row.orderId ? "system" : "bot"),
+          sent_by_user_id: row.sentByUserId ?? null,
+          raw: (row.content ?? null) as Json,
         })
         .select("id")
         .single();

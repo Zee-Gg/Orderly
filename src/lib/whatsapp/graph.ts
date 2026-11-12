@@ -61,6 +61,14 @@ export function postMessage(
   });
 }
 
+/** Read receipt (blue ticks) for an inbound message. */
+export function postReadReceipt(fetchImpl: FetchLike, phoneNumberId: string, token: string, messageId: string) {
+  return call<{ success?: boolean }>(fetchImpl, `${phoneNumberId}/messages`, token, {
+    method: "POST",
+    body: JSON.stringify({ messaging_product: "whatsapp", status: "read", message_id: messageId }),
+  });
+}
+
 /** "Test connection": can this token read this phone number? */
 export function getPhoneNumberInfo(fetchImpl: FetchLike, phoneNumberId: string, token: string) {
   return call<{ id: string; display_phone_number?: string; verified_name?: string; quality_rating?: string }>(

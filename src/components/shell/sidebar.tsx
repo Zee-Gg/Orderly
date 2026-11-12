@@ -15,6 +15,9 @@ export function Sidebar({ data, className }: { data: ShellData; className?: stri
   const pathname = usePathname();
   const items = visibleNavItems(data.role);
   const needsStaff = useOrdersLiveOptional()?.snapshot.needsStaff?.length ?? 0;
+  // + staff-handled chats with unread customer messages (Phase 10).
+  const unreadChats = useOrdersLiveOptional()?.snapshot.staffUnread?.length ?? 0;
+  const inboxBadge = needsStaff + unreadChats;
 
   return (
     <aside
@@ -50,12 +53,12 @@ export function Sidebar({ data, className }: { data: ShellData; className?: stri
             >
               <Icon aria-hidden className="size-5 shrink-0" />
               <span className="flex-1">{label}</span>
-              {href === "/inbox" && needsStaff > 0 ? (
+              {href === "/inbox" && inboxBadge > 0 ? (
                 <span
                   className="min-w-6 rounded-full bg-danger px-1.5 text-center text-xs font-bold leading-6 text-white"
-                  aria-label={`${needsStaff} chat${needsStaff === 1 ? "" : "s"} need staff`}
+                  aria-label={`${inboxBadge} chat${inboxBadge === 1 ? "" : "s"} need you`}
                 >
-                  {needsStaff}
+                  {inboxBadge}
                 </span>
               ) : null}
             </Link>

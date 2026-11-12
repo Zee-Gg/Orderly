@@ -6,3 +6,6 @@
 .env.keys
 .env.local
 .env.*.local
+
+/test-results/
+/playwright-report/

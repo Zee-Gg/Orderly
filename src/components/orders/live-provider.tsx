@@ -81,6 +81,8 @@ export function OrdersLiveProvider({
 
   const known = useRef(new Set(initial.orders.filter((o) => o.status === "awaiting_acceptance").map((o) => o.id)));
   const knownChats = useRef(new Set(initial.needsStaff.map((c) => c.id)));
+  // Phase 10: unread counts of staff-handled chats (a new customer message → sound).
+  const knownUnread = useRef(new Map((initial.staffUnread ?? []).map((c) => [c.id, c.unread])));
   const inFlight = useRef<Promise<void> | null>(null);
   const soundOnRef = useRef(false);
 
@@ -148,12 +150,28 @@ export function OrdersLiveProvider({
       const freshChats = chats.filter((c) => !knownChats.current.has(c.id));
       knownChats.current = new Set(chats.map((c) => c.id));
       announceChats(freshChats);
+      const unread = result.data.staffUnread ?? [];
+      const newer = unread.filter((c) => c.unread > (knownUnread.current.get(c.id) ?? 0));
+      knownUnread.current = new Map(unread.map((c) => [c.id, c.unread]));
+      if (newer.length) {
+        if (soundOnRef.current) playChime();
+        // No toast while the staff member is already looking at the inbox.
+        if (!window.location.pathname.startsWith("/inbox")) {
+          toast({
+            title: "New WhatsApp message",
+            description: newer.map((c) => c.name ?? "Customer").slice(0, 3).join(", "),
+            tone: "info",
+            duration: 8000,
+            action: { label: "Open", onClick: () => router.push(`/inbox?c=${newer[0].id}`) },
+          });
+        }
+      }
     })().finally(() => {
       inFlight.current = null;
     });
     inFlight.current = run;
     return run;
-  }, [announce, announceChats]);
+  }, [announce, announceChats, router, toast]);
 
   // Realtime + polling fallback + catch-up (shared with the kitchen screen).
   const filter = branchIds.length === 1 ? `branch_id=eq.${branchIds[0]}` : `restaurant_id=eq.${restaurantId}`;

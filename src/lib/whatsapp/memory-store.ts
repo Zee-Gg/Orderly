@@ -24,6 +24,8 @@ export type MemoryMessage = {
   mediaMimeType: string | null;
   mediaSize: number | null;
   orderId: string | null;
+  senderType?: string;
+  sentByUserId?: string | null;
   status: WaMessageStatus;
   error: string | null;
 };
@@ -94,6 +96,7 @@ export function createMemoryStore(
         waMessageId: row.waMessageId ?? null, type: row.type ?? "text", body: row.body, mediaId: null,
         mediaUrl: row.mediaUrl ?? null, mediaMimeType: null, mediaSize: null, orderId: row.orderId ?? null,
         status: row.status, error: row.error ?? null,
+        senderType: row.senderType ?? (row.orderId ? "system" : "bot"), sentByUserId: row.sentByUserId ?? null,
       };
       messages.push(msg);
       return msg.id;

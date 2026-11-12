@@ -56,6 +56,7 @@ function setup(
   };
   const messages: (PendingMessage & { handled: boolean })[] = [];
   const handoffs: string[] = [];
+  const systemLines: string[] = [];
   const transcripts: { id: string; transcript: string; provider: string }[] = [];
   const voiceHandle = vi.fn(async (): Promise<VoiceOutcome> => opts.voice ?? { kind: "unclear", durationSec: null, result: null, reason: "no voice set" });
   let seq = 0;
@@ -83,6 +84,9 @@ function setup(
     setHandoff: async (_r, _c, reason) => {
       conversation.botEnabled = false;
       handoffs.push(reason);
+    },
+    addSystemLine: async (_r, _c, text) => {
+      systemLines.push(text);
     },
     findOpenSessionId: async () => [...m.sessions.values()].find((s) => ["active", "awaiting_confirmation", "handed_off"].includes(s.status))?.id ?? null,
     defaultBranchId: async () => BRANCH_ID,
@@ -130,7 +134,7 @@ function setup(
       now: () => new Date(clock),
     });
   const trigger = (messageId: string) => ({ restaurantId: RESTAURANT_ID, branchId: BRANCH_ID, conversationId: "conv-1", messageId });
-  return { m, conversation, messages, handoffs, sent, sender, inbound, ref, make, trigger, transcripts, voiceHandle };
+  return { m, conversation, messages, handoffs, systemLines, sent, sender, inbound, ref, make, trigger, transcripts, voiceHandle };
 }
 
 describe("combineMessages", () => {

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { addSystemLine } from "@/lib/inbox/system";
 import type { Database, Json } from "@/types/database";
 
 /**
@@ -41,8 +42,10 @@ export interface BotChannelStore {
   claimLock(conversationId: string, ttlSeconds: number): Promise<boolean>;
   releaseLock(conversationId: string): Promise<void>;
   setMuted(conversationId: string, untilIso: string): Promise<void>;
-  /** bot_enabled = false + reason → "Needs staff" in the dashboard. */
+  /** bot_enabled = false + needs_staff + reason → "Needs staff" in the inbox (+ a system line). */
   setHandoff(restaurantId: string, conversationId: string, reason: string): Promise<void>;
+  /** A grey line in the inbox chat (never sent to WhatsApp). */
+  addSystemLine(restaurantId: string, conversationId: string, text: string, orderId?: string | null): Promise<void>;
   findOpenSessionId(restaurantId: string, conversationId: string): Promise<string | null>;
   /** A downloaded voice note from the private media bucket (null if missing). */
   downloadMedia(path: string): Promise<Uint8Array | null>;
@@ -151,14 +154,28 @@ export function createSupabaseChannelStore(db: Db): BotChannelStore {
     },
 
     async setHandoff(restaurantId, conversationId, reason) {
+      const now = new Date().toISOString();
       check(
         await db
           .from("whatsapp_conversations")
-          .update({ bot_enabled: false, handoff_reason: reason.slice(0, 300), handed_off_at: new Date().toISOString() })
+          .update({
+            bot_enabled: false,
+            handoff_reason: reason.slice(0, 300),
+            handed_off_at: now,
+            needs_staff: true,
+            needs_staff_since: now,
+            status: "open",
+            resolved_at: null,
+          })
           .eq("id", conversationId)
           .eq("restaurant_id", restaurantId),
         "handoff",
       );
+      await addSystemLine(db, restaurantId, conversationId, `Handed to staff: ${reason}`);
+    },
+
+    async addSystemLine(restaurantId, conversationId, text, orderId) {
+      await addSystemLine(db, restaurantId, conversationId, text, orderId);
     },
 
     async findOpenSessionId(restaurantId, conversationId) {

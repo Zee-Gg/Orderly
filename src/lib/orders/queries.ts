@@ -60,6 +60,8 @@ export type LiveSnapshot = {
   settings: BranchOrderSettings;
   /** Active riders of the branches in view (assign dropdown). */
   riders: RiderOption[];
+  /** Phase 10: staff-handled chats with unread customer messages (id → unread count). */
+  staffUnread: { id: string; name: string | null; unread: number }[];
   fetchedAt: string;
 };
 
@@ -139,7 +141,7 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
   const tz = ctx.restaurant.timezone || DEFAULT_TIMEZONE;
   const { start, end } = todayRange(tz);
 
-  const [board, today, branches, chats, riders] = await Promise.all([
+  const [board, today, branches, chats, riders, unread] = await Promise.all([
     supabase
       .from("orders")
       .select(BOARD_SELECT)
@@ -164,11 +166,11 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
     // RLS: front of house only (kitchen gets none).
     supabase
       .from("whatsapp_conversations")
-      .select("id, handoff_reason, handed_off_at, wa_id, customer:customers(name, phone)")
+      .select("id, handoff_reason, needs_staff_since, handed_off_at, wa_id, customer:customers(name, phone)")
       .eq("restaurant_id", ctx.restaurant.id)
-      .eq("bot_enabled", false)
-      .not("handed_off_at", "is", null)
-      .order("handed_off_at", { ascending: false })
+      .eq("needs_staff", true)
+      .eq("status", "open")
+      .order("needs_staff_since", { ascending: false })
       .limit(20),
     supabase
       .from("rider_profiles")
@@ -176,6 +178,14 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
       .eq("restaurant_id", ctx.restaurant.id)
       .in("branch_id", branchIds)
       .eq("is_active", true),
+    supabase
+      .from("whatsapp_conversations")
+      .select("id, unread_count, customer:customers(name)")
+      .eq("restaurant_id", ctx.restaurant.id)
+      .eq("bot_enabled", false)
+      .eq("status", "open")
+      .gt("unread_count", 0)
+      .limit(50),
   ]);
   if (board.error) throw board.error;
   if (today.error) throw today.error;
@@ -189,7 +199,7 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
       name: c.customer?.name ?? null,
       phone: c.customer?.phone ?? `+${c.wa_id}`,
       reason: c.handoff_reason,
-      at: c.handed_off_at!,
+      at: (c.needs_staff_since ?? c.handed_off_at)!,
     })),
     stats: {
       ordersToday: counted.length,
@@ -202,6 +212,7 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
         { name: b.name, acceptAlertMinutes: b.accept_alert_minutes, lateOrderMinutes: b.late_order_minutes },
       ]),
     ),
+    staffUnread: (unread.data ?? []).map((c) => ({ id: c.id, name: c.customer?.name ?? null, unread: c.unread_count })),
     riders: (riders.data ?? []).map((r) => ({
       id: r.id,
       name: r.name,

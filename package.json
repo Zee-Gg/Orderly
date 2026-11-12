@@ -9,18 +9,10 @@
     "lint": "eslint",
     "db:types": "npx supabase gen types typescript --remote > src/types/database.ts",
     "db:push": "npx supabase db push --remote",
-    "test:rls": "tsx scripts/test-rls.ts",
-    "test": "vitest run",
-    "test:watch": "vitest",
     "seed:menu": "tsx scripts/seed-demo-menu.ts",
     "simulate:orders": "tsx scripts/simulate-orders.ts",
     "whatsapp:fake": "tsx scripts/fake-whatsapp-webhook.ts",
-    "whatsapp:send-test": "tsx scripts/whatsapp-send-test.ts",
-    "eval:bot": "tsx scripts/eval-bot.ts",
-    "export:corrections": "tsx scripts/export-ai-corrections.ts",
-    "eval:voice": "tsx scripts/eval-voice.ts",
-    "test:e2e": "playwright test",
-    "test:all": "npm test && npm run test:rls && npm run test:e2e"
+    "whatsapp:send-test": "tsx scripts/whatsapp-send-test.ts"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^4.0.99",

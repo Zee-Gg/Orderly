@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CUSTOMER_WINDOW_MS, SEND_MAX_RETRIES } from "./config";
 import { decryptToken } from "./crypto";
-import { postMessage, type FetchLike } from "./graph";
+import { postMessage, postReadReceipt, type FetchLike } from "./graph";
 import type { OutboundType, WhatsAppStore } from "./store";
 
 /**
@@ -132,7 +132,12 @@ export type SendResult =
   | { ok: true; status: "sent"; messageId: string; waMessageId: string }
   | { ok: false; status: "skipped" | "failed"; messageId: string | null; error: string };
 
-export type SendOptions = { orderId?: string | null };
+export type SendOptions = {
+  orderId?: string | null;
+  /** Phase 10: staff replies from the inbox (default bot / system for order updates). */
+  senderType?: "bot" | "staff" | "system";
+  sentByUserId?: string | null;
+};
 
 export type SenderDeps = {
   store: WhatsAppStore;
@@ -177,6 +182,9 @@ export function createSender(deps: SenderDeps) {
         body: saved.body,
         mediaUrl: saved.mediaUrl,
         orderId: options.orderId ?? null,
+        senderType: options.senderType,
+        sentByUserId: options.sentByUserId ?? null,
+        content: c as unknown as Record<string, unknown>,
         status,
         ...extra,
       });
@@ -221,9 +229,22 @@ export function createSender(deps: SenderDeps) {
     return { ok: false, status: "failed", messageId, error: lastError };
   }
 
+  /** Blue ticks: mark the customer's message (and all before it) as read. Never throws. */
+  async function markRead(restaurantId: string, waMessageId: string): Promise<boolean> {
+    try {
+      const account = await deps.store.findAccountByRestaurant(restaurantId);
+      if (!account?.isActive) return false;
+      const res = await postReadReceipt(fetchImpl, account.phoneNumberId, decrypt(account.accessTokenEncrypted), waMessageId);
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
   type Target = [restaurantId: string, toWaId: string];
   return {
     send,
+    markRead,
     sendText: (...[r, to, text, options]: [...Target, string, SendOptions?]) => send(r, to, { kind: "text", text }, options),
     sendImage: (...[r, to, url, caption]: [...Target, string, string?]) => send(r, to, { kind: "image", url, caption }),
     sendDocument: (...[r, to, url, filename, caption]: [...Target, string, string, string?]) =>
