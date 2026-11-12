@@ -1,31 +1,32 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Suspense } from "react";
 import { Bike } from "lucide-react";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SkeletonList } from "@/components/ui/skeleton";
-import { SimplePage } from "@/components/shell/simple-page";
 import { requirePermission } from "@/lib/auth/session";
+import { getRiderHome } from "@/lib/riders/queries";
+import { RiderScreen } from "./rider-screen";
 
 export const metadata: Metadata = { title: "My deliveries" };
+export const viewport: Viewport = { themeColor: "#1c1917" };
 
-/** Rider's mobile page. Placeholder for the riders phase. */
+/** Rider's mobile page (Phase 9): assigned orders, big buttons, cash to collect. */
 async function Rider() {
   const ctx = await requirePermission("deliveries.view", { onDenied: "redirect" });
-  return (
-    <SimplePage title="My deliveries" subtitle={ctx.restaurant.name}>
-      <EmptyState
-        tone="delivery"
-        icon={<Bike />}
-        title="No deliveries right now"
-        description="When the restaurant gives you an order, it will show here with the address and cash to collect."
-      />
-    </SimplePage>
-  );
+  const home = await getRiderHome(ctx);
+  if (!home) {
+    return (
+      <main className="mx-auto flex min-h-dvh max-w-lg flex-col items-center justify-center gap-3 p-6 text-center">
+        <Bike aria-hidden className="size-12 text-muted" />
+        <h1 className="text-2xl font-bold">Your rider account is switched off</h1>
+        <p className="text-muted">Please talk to the manager.</p>
+      </main>
+    );
+  }
+  return <RiderScreen initial={home} />;
 }
 
 export default function RiderPage() {
   return (
-    <Suspense fallback={<div className="p-4"><SkeletonList /></div>}>
+    <Suspense fallback={<div className="mx-auto max-w-lg animate-pulse p-4"><div className="h-16 rounded-card bg-line" /><div className="mt-4 h-72 rounded-panel bg-line" /></div>}>
       <Rider />
     </Suspense>
   );
