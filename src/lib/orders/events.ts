@@ -1,7 +1,17 @@
 import type { Actor } from "./engine";
 import type { OrderStatus } from "./constants";
 
-export type OrderEventKind = "created" | "status_changed" | "cancelled" | "edited" | "held" | "unheld" | "payment_updated";
+export type OrderEventKind =
+  | "created"
+  | "status_changed"
+  | "cancelled"
+  | "edited"
+  | "held"
+  | "unheld"
+  | "payment_updated"
+  | "rider_assigned"
+  | "rider_unassigned"
+  | "cash_collected";
 
 export type EmittedOrder = {
   id: string;
