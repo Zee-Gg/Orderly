@@ -61,6 +61,7 @@ export async function sendOrderUpdate(
     orderType: ctx.orderType,
     minutes,
     cancelReason: (event.data?.reason as string | undefined) ?? ctx.cancelReason,
+    rider: ctx.rider ?? null,
   });
   if (!text) return { sent: false, reason: "no message for this order type" };
 
