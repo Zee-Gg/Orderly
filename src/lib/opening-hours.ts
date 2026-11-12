@@ -126,3 +126,24 @@ export function weekdayAt(date: Date, timeZone: string): (typeof WEEKDAYS)[numbe
   const name = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(date);
   return WEEKDAY_FROM_INTL[name] ?? "mon";
 }
+
+/**
+ * When the restaurant opens next (from the opening hours), as "12 PM" today or
+ * "Tue 12 PM" on a later day; null if never open. Ignores the manual open
+ * switch (if it's off during open hours we can't know when it comes back).
+ */
+export function nextOpening(hours: OpeningHours, date: Date, timeZone: string): string | null {
+  const parts = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  const today = WEEKDAY_FROM_INTL[get("weekday")] ?? "mon";
+  const now = Number(get("hour")) * 60 + Number(get("minute"));
+  for (let offset = 0; offset < 8; offset++) {
+    const day = WEEKDAYS[(WEEKDAYS.indexOf(today) + offset) % 7];
+    const h = hours[day];
+    if (h.closed) continue;
+    if (offset === 0 && toMinutes(h.open) <= now) continue;
+    const label = formatTime(h.open);
+    return offset === 0 ? label : `${WEEKDAY_LABELS[day].slice(0, 3)} ${label}`;
+  }
+  return null;
+}
