@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import type { PricingError, ResolvedCartItem } from "@/lib/menu/pricing";
+import { deliveryTerms } from "./delivery";
 import { money } from "./menu-index";
 import { t } from "./texts";
 import type { BotLanguage, BotSession, BotStage, BotStore, BranchInfo, CartLine, CustomerInfo } from "./types";
@@ -111,6 +112,7 @@ export function missingFields(session: BotSession, customer: CustomerInfo | null
   if (session.cart.length === 0) out.push("cart_empty");
   if (!session.orderType) out.push("order_type");
   if (session.orderType === "delivery" && !hasAddress(session)) out.push("delivery_address");
+  if (session.orderType === "delivery" && session.deliveryZone?.status === "out_of_range") out.push("delivery_address");
   if (!session.paymentMethod) out.push("payment_method");
   if (!customer?.name?.trim()) out.push("customer_name");
   return out;
@@ -167,7 +169,7 @@ export function buildSummary(
   language: BotLanguage = session.language,
 ): OrderSummary {
   const tx = t(language);
-  const deliveryFee = session.orderType === "delivery" ? branch.deliveryFee : 0;
+  const deliveryFee = deliveryTerms(session, branch).fee;
   const subtotal = cartSubtotal(session.cart);
   const total = subtotal + deliveryFee;
   const urdu = language === "urdu";
