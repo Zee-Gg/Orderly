@@ -59,8 +59,15 @@ describe("role rules", () => {
     expect(canTransition({ from: "ready", to: "completed", orderType: "pickup", role: "kitchen" }).ok).toBe(false);
   });
 
-  it("riders and strangers can't change orders", () => {
-    expect(canTransition({ from: "ready", to: "out_for_delivery", orderType: "delivery", role: "rider" }).ok).toBe(false);
+  it("riders only pick up and deliver (Phase 9); strangers can't change orders", () => {
+    const rider = (from: "ready" | "out_for_delivery" | "accepted" | "preparing", to: "out_for_delivery" | "delivered" | "failed" | "cancelled" | "ready") =>
+      canTransition({ from, to, orderType: "delivery", role: "rider" }).ok;
+    expect(rider("ready", "out_for_delivery")).toBe(true);
+    expect(rider("out_for_delivery", "delivered")).toBe(true);
+    expect(rider("out_for_delivery", "failed")).toBe(true);
+    expect(rider("preparing", "ready")).toBe(false);
+    expect(rider("ready", "cancelled")).toBe(false);
+    expect(canTransition({ from: "ready", to: "completed", orderType: "pickup", role: "rider" }).ok).toBe(false);
     expect(canTransition({ from: "accepted", to: "preparing", orderType: "pickup", role: null }).ok).toBe(false);
   });
 
