@@ -3,6 +3,7 @@ import { BOT_LIMITS } from "../config";
 import { buildSummary, cartSubtotal, hasAddress, invalidateSummary, missingFields, repriceCart, summaryHash } from "../cart";
 import { money } from "../menu-index";
 import { t } from "../texts";
+import { applyDeliveryZone, deliveryTerms } from "../delivery";
 import { fail, type BotContext, type ToolResult } from "./context";
 
 const optStr = (max: number) => z.string().trim().max(max).nullish();
@@ -28,7 +29,9 @@ export async function setOrderTypeTool(ctx: BotContext, input: z.infer<typeof or
     ok: true,
     order_type: input.order_type,
     ...(input.order_type === "delivery"
-      ? { delivery_fee: money(ctx.branch.deliveryFee), ...(ctx.branch.minimumOrder ? { minimum_order: money(ctx.branch.minimumOrder) } : {}) }
+      ? ctx.session.deliveryZone && ctx.session.deliveryZone.status !== "out_of_range"
+        ? { delivery_fee: money(deliveryTerms(ctx.session, ctx.branch).fee), note: "Fee for the customer's area (already known)." }
+        : { delivery_fee: "depends on the area — ask for the address first" }
       : { pickup_from: [ctx.branch.name, ctx.branch.address].filter(Boolean).join(", ") }),
     ...next(ctx),
   };
@@ -49,10 +52,28 @@ export async function setDeliveryAddressTool(ctx: BotContext, input: z.infer<typ
     longitude: input.longitude ?? s.address.longitude,
   };
   invalidateSummary(s);
-  if (!hasAddress(s)) {
-    return fail("LANDMARK_REQUIRED", "Address saved, but riders need a nearby landmark or a location pin. Ask for one.", next(ctx));
+  // Delivery zone (Phase 9): code decides the fee and minimum from the area / pin.
+  const zone = await applyDeliveryZone(ctx);
+  if (zone?.status === "out_of_range") {
+    return fail("OUT_OF_RANGE", "We don't deliver to this area.", {
+      say: "Maazrat, is area mein delivery nahi hoti. Kya aap pickup karna chahenge?",
+      instruction: "Tell the customer exactly that (in their language) and offer pickup. Do not take delivery for this address.",
+      pickup_from: [ctx.branch.name, ctx.branch.address].filter(Boolean).join(", "),
+    });
   }
-  return { ok: true, address: [s.address.text, s.address.area, s.address.landmark].filter(Boolean).join(", "), ...next(ctx) };
+  const terms = deliveryTerms(s, ctx.branch);
+  const subtotal = cartSubtotal(s.cart);
+  const area = {
+    delivery_area: zone?.name ?? s.address.area ?? null,
+    delivery_fee: money(terms.fee),
+    ...(terms.minimumOrder ? { minimum_order: money(terms.minimumOrder) } : {}),
+    ...(terms.minimumOrder > subtotal && s.cart.length ? { below_minimum_by: money(terms.minimumOrder - subtotal) } : {}),
+    ...(zone?.etaMinutes ? { delivery_time: `about ${zone.etaMinutes} minutes` } : {}),
+  };
+  if (!hasAddress(s)) {
+    return fail("LANDMARK_REQUIRED", "Address saved, but riders need a nearby landmark or a location pin. Ask for one.", { ...area, ...next(ctx) });
+  }
+  return { ok: true, address: [s.address.text, s.address.area, s.address.landmark].filter(Boolean).join(", "), ...area, ...next(ctx) };
 }
 
 export async function setPaymentMethodTool(ctx: BotContext, input: z.infer<typeof paymentSchema>): Promise<ToolResult> {
@@ -89,14 +110,23 @@ export async function showOrderSummaryTool(ctx: BotContext): Promise<ToolResult>
       problems: problems.map((p) => ({ line_id: p.lineId, item: p.name, error: p.errors[0]?.code, message: p.errors[0]?.message })),
     });
   }
+  if (s.orderType === "delivery" && s.deliveryZone?.status === "out_of_range") {
+    return fail("OUT_OF_RANGE", "We don't deliver to this address. Say \"Maazrat, is area mein delivery nahi hoti\" and offer pickup.");
+  }
   const missing: string[] = missingFields(s, ctx.customer);
   const subtotal = cartSubtotal(s.cart);
-  if (s.orderType === "delivery" && ctx.branch.minimumOrder > subtotal) missing.push("minimum_order");
+  const terms = deliveryTerms(s, ctx.branch);
+  if (s.orderType === "delivery" && terms.minimumOrder > subtotal) missing.push("minimum_order");
   if (missing.length || !ctx.customer) {
     return fail("NOT_READY", "Ask the customer for the first missing thing (one question).", {
       missing,
       ...(missing.includes("minimum_order")
-        ? { minimum_order: money(ctx.branch.minimumOrder), current_subtotal: money(subtotal) }
+        ? {
+            minimum_order: money(terms.minimumOrder),
+            current_subtotal: money(subtotal),
+            add_at_least: money(terms.minimumOrder - subtotal),
+            instruction: "Tell the customer the minimum for their area and how much more to add (add_at_least).",
+          }
         : {}),
     });
   }
@@ -135,7 +165,7 @@ export async function confirmOrderTool(ctx: BotContext): Promise<ToolResult> {
 
   // The customer agreed to exactly this: re-price now and compare.
   const problems = await repriceCart(ctx.store, s);
-  const deliveryFee = s.orderType === "delivery" ? ctx.branch.deliveryFee : 0;
+  const deliveryFee = deliveryTerms(s, ctx.branch).fee;
   if (problems.length || summaryHash(s, deliveryFee, ctx.customer.name ?? "") !== s.summaryHash) {
     invalidateSummary(s);
     return fail("CART_CHANGED", "The order changed since the summary (price, stock or details). Call show_order_summary again.");
@@ -150,13 +180,19 @@ export async function confirmOrderTool(ctx: BotContext): Promise<ToolResult> {
     customer: ctx.customer,
     deliveryFee,
     idempotencyKey: `bot-${s.id}-${s.summaryHash.slice(0, 16)}`,
+    deliveryZoneId: s.deliveryZone?.zoneId ?? null,
   });
   if (!result.ok) {
     return fail(result.code, `${result.message} Apologise and hand off to staff.`);
   }
 
-  if (!result.data.duplicate && isNew && s.paymentMethod === "cod" && total > ctx.restaurant.highValueCodThreshold) {
-    await ctx.store.setRiskFlag(s.restaurantId, result.data.id, "New customer, high value — call to confirm.");
+  const flags = [
+    ...(isNew && s.paymentMethod === "cod" && total > ctx.restaurant.highValueCodThreshold ? ["New customer, high value — call to confirm."] : []),
+    // Unlisted area delivered at the default fee (Phase 9).
+    ...(s.orderType === "delivery" && s.deliveryZone?.flag ? [s.deliveryZone.flag] : []),
+  ];
+  if (!result.data.duplicate && flags.length) {
+    await ctx.store.setRiskFlag(s.restaurantId, result.data.id, flags.join(" · "));
   }
 
   s.orderId = result.data.id;
@@ -188,7 +224,8 @@ export async function getRestaurantInfoTool(ctx: BotContext): Promise<ToolResult
     address: [b.address, b.area].filter(Boolean).join(", ") || null,
     phone: b.phone || ctx.restaurant.phone,
     week_hours: b.weekHours,
-    delivery_fee: money(b.deliveryFee),
+    delivery_fee: ctx.session.deliveryZone && ctx.session.deliveryZone.status !== "out_of_range" ? money(deliveryTerms({ ...ctx.session, orderType: "delivery" }, b).fee) : "depends on the area (ask for the address)",
+    default_delivery_fee: money(b.deliveryFee),
     minimum_order_for_delivery: b.minimumOrder ? money(b.minimumOrder) : null,
     delivery_time: `about ${b.prepMinutes + b.deliveryMinutes} minutes`,
     pickup_ready_time: `about ${b.prepMinutes} minutes`,
