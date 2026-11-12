@@ -3,7 +3,7 @@ import { runBotTurn, type AgentDeps, type BotButton, type BotTurnInput } from ".
 import { detectLanguage } from "../language";
 import { t } from "../texts";
 import { handleVoice, VOICE_MARKER } from "../voice/handle";
-import type { BotLanguage, BotStore } from "../types";
+import type { BotLanguage, BotMedia, BotStore } from "../types";
 import type { BotChannelStore, PendingMessage } from "./channel";
 
 /**
@@ -30,6 +30,8 @@ export const BOT_PIPELINE = {
 export type PipelineSender = {
   sendText(restaurantId: string, toWaId: string, text: string): Promise<{ ok: boolean; error?: string }>;
   sendInteractiveButtons(restaurantId: string, toWaId: string, text: string, buttons: BotButton[]): Promise<{ ok: boolean; error?: string }>;
+  /** Menu images/PDF, dish photos, location pins (Phase 7C). */
+  sendMedia(restaurantId: string, toWaId: string, media: BotMedia): Promise<{ ok: boolean; error?: string }>;
 };
 
 export type PipelineDeps = {
@@ -307,6 +309,11 @@ export function createBotPipeline(deps: PipelineDeps) {
     if (result.handedOff && result.replyText) {
       await channel.setHandoff(restaurantId, conversationId, result.session.handoffReason ?? "Bot handed off to staff");
       log("handed off to staff", { reason: result.session.handoffReason });
+    }
+    // Media (menu, photo, location) goes BEFORE the text that talks about it.
+    for (const media of result.media ?? []) {
+      const sent = await sender.sendMedia(restaurantId, conv.waId, media);
+      if (!sent.ok) log("media NOT sent", { kind: media.kind, error: sent.error });
     }
     if (result.replyText) {
       const sent = await send(restaurantId, conv.waId, result.replyText, result.showButtons);
