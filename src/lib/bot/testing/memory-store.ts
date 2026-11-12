@@ -7,6 +7,7 @@ import {
   type PricingGroup,
   type PricingSize,
 } from "@/lib/menu/pricing";
+import type { DeliveryZone } from "@/lib/delivery/zones";
 import type { FaqRecord, OfferRecord } from "../knowledge";
 import type { AiLogRow, BotSession, BotStore, CartDraft, BranchInfo, CustomerInfo, RecentOrder, RestaurantInfo } from "../types";
 
@@ -129,6 +130,8 @@ export function createMemoryBotStore(
     bestsellers?: { itemName: string; quantity: number }[];
     /** Item names that have a photo (→ https://photos.test/<item id>.jpg). */
     photos?: string[];
+    /** Delivery zones of the branch (Phase 9). */
+    zones?: DeliveryZone[];
   } = {},
 ) {
   const { source, pricing, itemIds } = buildMenuData();
@@ -162,6 +165,8 @@ export function createMemoryBotStore(
     weekHours: "Mon: 12:00 PM – 11:59 PM\nTue: 12:00 PM – 11:59 PM",
     prepMinutes: 20,
     deliveryMinutes: 30,
+    maxDeliveryRadiusKm: null,
+    unlistedAreaPolicy: "default_fee",
     ...opts.branch,
   };
   const customers = new Map<string, CustomerInfo>();
@@ -214,6 +219,7 @@ export function createMemoryBotStore(
         cart: [],
         cartDraftId: null,
         pendingCartCode: null,
+        deliveryZone: null,
         orderType: null,
         address: { text: null, area: null, landmark: null, latitude: null, longitude: null },
         paymentMethod: null,
@@ -299,6 +305,9 @@ export function createMemoryBotStore(
     async getItemPhotoUrl(_rid, itemId) {
       const name = Object.entries(itemIds).find(([, id]) => id === itemId)?.[0];
       return name && opts.photos?.includes(name) ? `https://photos.test/${itemId}.jpg` : null;
+    },
+    async getDeliveryZones() {
+      return opts.zones ?? [];
     },
     async findCartDraft(rid, code) {
       const d = rid === RESTAURANT_ID ? drafts.get(code.toUpperCase()) : undefined;
