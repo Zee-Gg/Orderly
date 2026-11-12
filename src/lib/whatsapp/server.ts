@@ -37,6 +37,18 @@ export function whatsappBotHook(): InboundHook {
     sender: {
       sendText: (r, to, text) => sender.sendText(r, to, text),
       sendInteractiveButtons: (r, to, text, buttons) => sender.sendInteractiveButtons(r, to, text, buttons),
+      sendMedia: (r, to, media) => {
+        switch (media.kind) {
+          case "image":
+            return sender.sendImage(r, to, media.url, media.caption);
+          case "document":
+            return sender.sendDocument(r, to, media.url, media.fileName, media.caption);
+          case "location":
+            return sender.sendLocation(r, to, media.latitude, media.longitude, media.name, media.address);
+          case "text":
+            return sender.sendText(r, to, media.text);
+        }
+      },
     },
     log: (step, details) => console.log(`[bot] ${step}`, details ? JSON.stringify(details) : ""),
   });
