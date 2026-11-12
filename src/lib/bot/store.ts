@@ -50,6 +50,7 @@ function toSession(r: SessionRow): BotSession {
     createdAt: r.created_at,
     cartDraftId: r.cart_draft_id,
     pendingCartCode: r.pending_cart_code,
+    deliveryZone: (r.delivery_zone as unknown as BotSession["deliveryZone"]) ?? null,
   };
 }
 
@@ -118,7 +119,7 @@ export function createSupabaseBotStore(db: Db): BotStore {
         db
           .from("branches")
           .select(
-            "id, name, address, area, phone, is_open, is_active, opening_hours, default_delivery_fee, minimum_order, latitude, longitude, google_maps_url, default_prep_minutes, delivery_minutes",
+            "id, name, address, area, phone, is_open, is_active, opening_hours, default_delivery_fee, minimum_order, latitude, longitude, google_maps_url, default_prep_minutes, delivery_minutes, max_delivery_radius_km, unlisted_area_policy",
           )
           .eq("id", branchId)
           .eq("restaurant_id", restaurantId)
@@ -146,6 +147,8 @@ export function createSupabaseBotStore(db: Db): BotStore {
         weekHours: WEEKDAYS.map((d) => `${DAY_NAMES[d]}: ${formatDayHours(hours[d])}`).join("\n"),
         prepMinutes: branch.default_prep_minutes,
         deliveryMinutes: branch.delivery_minutes,
+        maxDeliveryRadiusKm: branch.max_delivery_radius_km,
+        unlistedAreaPolicy: branch.unlisted_area_policy === "reject" ? "reject" : "default_fee",
       };
     },
 
@@ -237,6 +240,7 @@ export function createSupabaseBotStore(db: Db): BotStore {
             last_activity_at: s.lastActivityAt,
             cart_draft_id: s.cartDraftId,
             pending_cart_code: s.pendingCartCode,
+            delivery_zone: s.deliveryZone as unknown as Json,
           })
           .eq("id", s.id)
           .eq("restaurant_id", s.restaurantId),
@@ -264,8 +268,8 @@ export function createSupabaseBotStore(db: Db): BotStore {
       }));
     },
 
-    async createOrder({ session, customer, deliveryFee, idempotencyKey }) {
-      return createOrder(
+    async createOrder({ session, customer, deliveryFee, idempotencyKey, deliveryZoneId }) {
+      const result = await createOrder(
         { admin: db, pricing: db },
         { restaurantId: session.restaurantId, branchIds: null },
         {
@@ -299,6 +303,10 @@ export function createSupabaseBotStore(db: Db): BotStore {
         BOT_ACTOR,
         { initialStatus: "awaiting_acceptance" },
       );
+      if (result.ok && deliveryZoneId && session.orderType === "delivery") {
+        await db.from("orders").update({ delivery_zone_id: deliveryZoneId }).eq("id", result.data.id).eq("restaurant_id", session.restaurantId);
+      }
+      return result;
     },
 
     async setRiskFlag(restaurantId, orderId, flag) {
@@ -396,6 +404,28 @@ export function createSupabaseBotStore(db: Db): BotStore {
       const { error } = await bucket.upload(path, jpeg, { contentType: "image/jpeg", upsert: true });
       if (error) throw new Error(`item photo: ${error.message}`);
       return publicUrl;
+    },
+
+    async getDeliveryZones(restaurantId, branchId) {
+      const rows = check(
+        await db
+          .from("delivery_zones")
+          .select("id, name, aliases, delivery_fee, minimum_order, estimated_minutes, is_active")
+          .eq("restaurant_id", restaurantId)
+          .eq("branch_id", branchId)
+          .eq("is_active", true)
+          .order("sort_order"),
+        "delivery zones",
+      );
+      return (rows ?? []).map((z) => ({
+        id: z.id,
+        name: z.name,
+        aliases: z.aliases,
+        deliveryFee: z.delivery_fee,
+        minimumOrder: z.minimum_order,
+        estimatedMinutes: z.estimated_minutes,
+        isActive: z.is_active,
+      }));
     },
 
     async findCartDraft(restaurantId, code) {
