@@ -160,6 +160,8 @@ export function OrdersLiveProvider({
   const { realtime, online } = useLiveRefresh({ table: "orders", filter, refresh });
   // Bot handoffs ("Needs staff") come from WhatsApp conversations, not orders.
   useLiveRefresh({ table: "whatsapp_conversations", filter: `restaurant_id=eq.${restaurantId}`, refresh });
+  // Riders going online/offline (assign dropdown).
+  useLiveRefresh({ table: "rider_profiles", filter: `restaurant_id=eq.${restaurantId}`, refresh });
 
   // Clock for "x min ago", urgent and late.
   useEffect(() => {
