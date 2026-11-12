@@ -19,6 +19,7 @@ import {
   TriangleAlert,
   XCircle,
 } from "lucide-react";
+import { AssignRider } from "./assign-rider";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -64,6 +65,12 @@ function eventText(e: EventRow): string {
       return `Marked paid · ${PAYMENT_METHOD_LABELS[data.method as keyof typeof PAYMENT_METHOD_LABELS] ?? ""}${data.reference ? ` (${String(data.reference)})` : ""}`;
     case "printed":
       return data.kind === "bill" ? "Bill printed" : "Kitchen slip printed";
+    case "rider_assigned":
+      return data.previous_rider_name ? `Rider changed · ${String(data.previous_rider_name)} → ${String(data.rider_name ?? "")}` : `Rider · ${String(data.rider_name ?? "")}`;
+    case "rider_unassigned":
+      return `Rider removed${data.previous_rider_name ? ` · ${String(data.previous_rider_name)}` : ""}`;
+    case "cash_collected":
+      return `Cash collected · ${formatPKR(Number(data.amount ?? 0))}${data.expected !== undefined && data.amount !== data.expected ? ` of ${formatPKR(Number(data.expected))}${data.note ? ` — ${String(data.note)}` : ""}` : ""}`;
     default:
       return e.event_type.replace("_", " ");
   }
@@ -295,6 +302,14 @@ export function OrderDrawer({
             ) : null}
             {shown.order_type === "dine_in" && shown.table_number ? (
               <p className="mt-2 text-sm font-semibold">Table {shown.table_number}</p>
+            ) : null}
+            {shown.order_type === "delivery" ? (
+              <div className="mt-3" data-testid="drawer-rider">
+                <AssignRider
+                  order={{ id: shown.id, branchId: shown.branch_id, status: shown.status, orderType: shown.order_type, version: shown.version, riderId: shown.rider_id }}
+                  onDone={onChanged}
+                />
+              </div>
             ) : null}
             <div className="mt-3 flex flex-wrap gap-2">
               {customer ? (
