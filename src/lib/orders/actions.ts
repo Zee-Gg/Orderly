@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 import { writeAuditLog } from "@/lib/audit";
-import type { Action } from "@/lib/auth/permissions";
+import { can, type Action } from "@/lib/auth/permissions";
 import { requirePermission, type CurrentContext } from "@/lib/auth/session";
 import { getBranchMenu, type BranchMenu } from "@/lib/menu/pricing";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -71,15 +71,30 @@ async function guarded<T>(action: Action, run: (c: Ctx) => Promise<EngineResult<
 // Writes
 // ---------------------------------------------------------------------------
 
-export async function createOrderAction(input: CreateOrderInput): Promise<EngineResult<CreatedOrder>> {
-  return guarded("orders.create", async ({ deps, scope, actor }) => {
+export async function createOrderAction(input: CreateOrderInput & { deliveryZoneId?: string | null }): Promise<EngineResult<CreatedOrder>> {
+  return guarded("orders.create", async ({ ctx, deps, scope, actor }) => {
     const branchId = z.uuid().safeParse(input.branchId);
     const { data: branch } = branchId.success
-      ? await deps.admin.from("branches").select("staff_orders_need_acceptance").eq("id", branchId.data).maybeSingle()
+      ? await deps.admin.from("branches").select("staff_orders_need_acceptance, default_delivery_fee").eq("id", branchId.data).maybeSingle()
       : { data: null };
-    return createOrder(deps, scope, input, actor, {
+    // Delivery zone (Phase 9): the fee comes from the area unless a manager types another one.
+    const zoneId = input.orderType === "delivery" && input.deliveryZoneId && z.uuid().safeParse(input.deliveryZoneId).success ? input.deliveryZoneId : null;
+    const { data: zone } = zoneId
+      ? await deps.admin.from("delivery_zones").select("id, delivery_fee").eq("id", zoneId).eq("restaurant_id", ctx.restaurant.id).eq("branch_id", input.branchId).maybeSingle()
+      : { data: null };
+    if (input.orderType === "delivery" && !can(ctx.role, "orders.delivery_fee")) {
+      const expected = zone?.delivery_fee ?? branch?.default_delivery_fee ?? 0;
+      if ((input.deliveryFee ?? 0) !== expected) {
+        return { ok: false, code: "NOT_ALLOWED", message: "Only a manager can change the delivery fee.", fieldErrors: { deliveryFee: "Use the area's fee" } };
+      }
+    }
+    const result = await createOrder(deps, scope, input, actor, {
       initialStatus: branch?.staff_orders_need_acceptance ? "awaiting_acceptance" : "accepted",
     });
+    if (result.ok && zone && !result.data.duplicate) {
+      await deps.admin.from("orders").update({ delivery_zone_id: zone.id }).eq("id", result.data.id).eq("restaurant_id", ctx.restaurant.id);
+    }
+    return result;
   });
 }
 
