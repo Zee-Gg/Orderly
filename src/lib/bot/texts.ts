@@ -33,8 +33,19 @@ type Texts = {
   chooseBelow: string;
   voiceTooLong: string;
   voiceUnclear: string;
+  menuCaption: string;
+  textMenuTitle: string;
+  /** Menu page (Phase 8). */
+  menuPageLink: (url: string) => string;
+  menuLinkLine: (url: string) => string;
+  cartLoaded: (lines: string[], skipped: string[]) => string;
+  cartNothingAvailable: (skipped: string[]) => string;
+  codeExpired: (url: string | null) => string;
+  cartReplaceOrAdd: string;
   blocked: (phone: string | null) => string;
   buttons: {
+    replace: string;
+    add: string;
     confirm: string;
     change: string;
     cancel: string;
@@ -74,9 +85,18 @@ const ROMAN: Texts = {
   chooseBelow: "Neeche se choose karein 👇",
   voiceTooLong: "Thora chota voice note bhejein ya type kar dein 🙏",
   voiceUnclear: "Maazrat, voice note samajh nahi aaya. Dobara bhejein ya type kar dein 🙏",
+  menuCaption: "Final prices aap ke order summary mein confirm honge",
+  textMenuTitle: "📋 *Hamara menu*",
+  menuPageLink: (url) => `Yahan se items select karein 👉 ${url}`,
+  menuLinkLine: (url) => `📋 Menu dekh kar order karein 👉 ${url}`,
+  cartLoaded: (lines, skipped) =>
+    `🛒 Aap ka order mil gaya: ${lines.join(", ")}.${skipped.length ? `\n${skipped.join(", ")} abhi available nahi.` : ""}`,
+  cartNothingAvailable: (skipped) => `Maazrat, ${skipped.join(", ")} abhi available nahi. Kuch aur order karna chahenge?`,
+  codeExpired: (url) => `Ye order code expire ho gaya hai. Menu se dobara bhejein ya yahan type kar dein 🙏${url ? `\n👉 ${url}` : ""}`,
+  cartReplaceOrAdd: "Aap ke cart mein pehle se items hain. Naya order un ki jagah rakhein ya saath add karein?",
   menuUnavailable: "Maazrat, abhi online menu available nahi hai. Hamara staff jald aap se raabta karega 🙏",
   blocked: (p) => `Maazrat, is number se online order nahi ho sakta.${p ? ` Order ke liye call karein: ${p}` : ""}`,
-  buttons: { confirm: "✅ Confirm", change: "✏️ Change", cancel: "❌ Cancel", delivery: "🛵 Delivery", pickup: "🛍️ Pickup", cod: "💵 Cash on delivery", card: "💳 Card on delivery" },
+  buttons: { confirm: "✅ Confirm", change: "✏️ Change", cancel: "❌ Cancel", delivery: "🛵 Delivery", pickup: "🛍️ Pickup", cod: "💵 Cash on delivery", card: "💳 Card on delivery", replace: "🔄 Replace", add: "➕ Add" },
   status: {
     pending_confirmation: "abhi confirm nahi hua",
     awaiting_acceptance: "restaurant confirm kar raha hai",
@@ -119,9 +139,18 @@ const ENGLISH: Texts = {
   chooseBelow: "Please choose below 👇",
   voiceTooLong: "Please send a shorter voice note or type it 🙏",
   voiceUnclear: "Sorry, I couldn't understand the voice note. Please send it again or type it 🙏",
+  menuCaption: "Final prices are confirmed in your order summary",
+  textMenuTitle: "📋 *Our menu*",
+  menuPageLink: (url) => `Pick your items here 👉 ${url}`,
+  menuLinkLine: (url) => `📋 See the menu and order here 👉 ${url}`,
+  cartLoaded: (lines, skipped) =>
+    `🛒 Got your order: ${lines.join(", ")}.${skipped.length ? `\n${skipped.join(", ")} ${skipped.length === 1 ? "is" : "are"} not available right now.` : ""}`,
+  cartNothingAvailable: (skipped) => `Sorry, ${skipped.join(", ")} ${skipped.length === 1 ? "is" : "are"} not available right now. Would you like something else?`,
+  codeExpired: (url) => `This order code has expired. Please send it again from the menu, or type your order here 🙏${url ? `\n👉 ${url}` : ""}`,
+  cartReplaceOrAdd: "You already have items in your cart. Replace them with the new order, or add to them?",
   menuUnavailable: "Sorry, our online menu isn't available right now. Our staff will contact you shortly 🙏",
   blocked: (p) => `Sorry, online ordering isn't available for this number.${p ? ` Please call us to order: ${p}` : ""}`,
-  buttons: { confirm: "✅ Confirm", change: "✏️ Change", cancel: "❌ Cancel", delivery: "🛵 Delivery", pickup: "🛍️ Pickup", cod: "💵 Cash on delivery", card: "💳 Card on delivery" },
+  buttons: { confirm: "✅ Confirm", change: "✏️ Change", cancel: "❌ Cancel", delivery: "🛵 Delivery", pickup: "🛍️ Pickup", cod: "💵 Cash on delivery", card: "💳 Card on delivery", replace: "🔄 Replace", add: "➕ Add" },
   status: {
     pending_confirmation: "not confirmed yet",
     awaiting_acceptance: "waiting for the restaurant to accept",
@@ -164,9 +193,18 @@ const URDU: Texts = {
   chooseBelow: "نیچے سے منتخب کریں 👇",
   voiceTooLong: "تھوڑا چھوٹا وائس نوٹ بھیجیں یا لکھ دیں 🙏",
   voiceUnclear: "معذرت، وائس نوٹ سمجھ نہیں آیا۔ دوبارہ بھیجیں یا لکھ دیں 🙏",
+  menuCaption: "حتمی قیمتیں آپ کے آرڈر کی سمری میں کنفرم ہوں گی",
+  textMenuTitle: "📋 *ہمارا مینو*",
+  menuPageLink: (url) => `یہاں سے آئٹمز منتخب کریں 👉 ${url}`,
+  menuLinkLine: (url) => `📋 مینو دیکھ کر آرڈر کریں 👉 ${url}`,
+  cartLoaded: (lines, skipped) =>
+    `🛒 آپ کا آرڈر مل گیا: ${lines.join("، ")}۔${skipped.length ? `\n${skipped.join("، ")} ابھی دستیاب نہیں۔` : ""}`,
+  cartNothingAvailable: (skipped) => `معذرت، ${skipped.join("، ")} ابھی دستیاب نہیں۔ کچھ اور آرڈر کریں گے؟`,
+  codeExpired: (url) => `یہ آرڈر کوڈ ختم ہو گیا ہے۔ مینو سے دوبارہ بھیجیں یا یہاں لکھ دیں 🙏${url ? `\n👉 ${url}` : ""}`,
+  cartReplaceOrAdd: "آپ کے کارٹ میں پہلے سے آئٹمز ہیں۔ نیا آرڈر ان کی جگہ رکھیں یا ساتھ شامل کریں؟",
   menuUnavailable: "معذرت، ابھی آن لائن مینو دستیاب نہیں۔ ہمارا عملہ جلد آپ سے رابطہ کرے گا 🙏",
   blocked: (p) => `معذرت، اس نمبر سے آن لائن آرڈر نہیں ہو سکتا۔${p ? ` آرڈر کے لیے کال کریں: ${p}` : ""}`,
-  buttons: { confirm: "✅ کنفرم", change: "✏️ تبدیلی", cancel: "❌ کینسل", delivery: "🛵 ڈیلیوری", pickup: "🛍️ پک اپ", cod: "💵 کیش آن ڈیلیوری", card: "💳 کارڈ آن ڈیلیوری" },
+  buttons: { confirm: "✅ کنفرم", change: "✏️ تبدیلی", cancel: "❌ کینسل", delivery: "🛵 ڈیلیوری", pickup: "🛍️ پک اپ", cod: "💵 کیش آن ڈیلیوری", card: "💳 کارڈ آن ڈیلیوری", replace: "🔄 تبدیل کریں", add: "➕ شامل کریں" },
   status: {
     pending_confirmation: "ابھی کنفرم نہیں ہوا",
     awaiting_acceptance: "ریسٹورنٹ کنفرم کر رہا ہے",
