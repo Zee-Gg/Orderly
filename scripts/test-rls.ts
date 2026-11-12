@@ -8,7 +8,7 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
-import { createOrder, transitionOrder, type Actor } from "../src/lib/orders/engine";
+import { assignRider, createOrder, recordCodCollection, transitionOrder, type Actor } from "../src/lib/orders/engine";
 import { encryptToken } from "../src/lib/whatsapp/crypto";
 import { MockLanguageModelV4 } from "ai/test";
 import { runBotTurn } from "../src/lib/bot/agent";
@@ -390,6 +390,7 @@ async function main() {
   await botChecks(ownerA, ownerB, kitchenA, restA);
   await knowledgeChecks(ownerA, ownerB, kitchenA, restA);
   await menuPageSecurityChecks(ownerA, ownerB, kitchenA, restA);
+  await riderChecks(ownerA, ownerB, kitchenA, restA);
   await botConversationCheck();
   await menuPageFlowCheck();
 }
@@ -1286,7 +1287,9 @@ async function knowledgeChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: Tes
   ] as const;
   for (const [label, user] of staffUsers) {
     const read = await user.client.from("offers").select("id").eq("restaurant_id", restA.id);
-    check(`${label} can read offers`, !read.error && read.data.length === 1, JSON.stringify(read));
+    // Phase 9: riders see only their deliveries (no bot settings).
+    if (label === "Rider") check("Rider cannot read offers", !read.error && read.data.length === 0, JSON.stringify(read));
+    else check(`${label} can read offers`, !read.error && read.data.length === 1, JSON.stringify(read));
     const updO = await user.client.from("offers").update({ title: "Free food" }).eq("id", offer.data!.id).select("id");
     check(`${label} cannot edit offers`, updO.error !== null || updO.data.length === 0, JSON.stringify(updO));
     const updF = await user.client.from("restaurant_faqs").update({ answer: "No" }).eq("id", faq.data!.id).select("id");
@@ -1520,6 +1523,182 @@ async function menuPageFlowCheck() {
   } catch (err) {
     check("Menu page flow ran", false, err instanceof Error ? err.stack ?? err.message : String(err));
   }
+}
+
+/** Phase 9: riders see only their own deliveries; zones; assignment, cash, settlement. */
+async function riderChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest) {
+  section("Riders: setup (phone + PIN logins, zones)");
+  const makeRider = async (label: string, phone: string) => {
+    const email = `rider-${phone.replace(/\D/g, "")}@riders.internal`;
+    const { data, error } = await admin.auth.admin.createUser({ email, password: "123456", email_confirm: true });
+    if (error || !data.user) throw new Error(`rider ${label}: ${error?.message}`);
+    createdUserIds.push(data.user.id);
+    await admin.from("memberships").insert({ user_id: data.user.id, restaurant_id: restA.id, branch_id: restA.branchId, role: "rider" });
+    const { data: profile, error: pErr } = await admin
+      .from("rider_profiles")
+      .insert({ restaurant_id: restA.id, branch_id: restA.branchId, user_id: data.user.id, name: `Rider ${label}`, phone })
+      .select("id")
+      .single();
+    if (pErr) throw pErr;
+    const client = createClient<Database>(url!, publishableKey!, noSession);
+    const signIn = await client.auth.signInWithPassword({ email, password: "123456" });
+    if (signIn.error) throw new Error(`rider ${label} sign in: ${signIn.error.message}`);
+    return { id: data.user.id, riderId: profile.id, client };
+  };
+  const tail = String(Date.now()).slice(-6);
+  const riderA = await makeRider("A", `+92300${tail}1`.slice(0, 13));
+  const riderB = await makeRider("B", `+92301${tail}2`.slice(0, 13));
+  check("Riders log in with the hidden phone email + 6-digit PIN", true);
+
+  const zone = await ownerA.client
+    .from("delivery_zones")
+    .insert({ restaurant_id: restA.id, branch_id: restA.branchId, name: "DHA Phase 5", aliases: ["dha 5"], delivery_fee: 10000, minimum_order: 50000 })
+    .select("id")
+    .single();
+  check("Owner A can add a delivery zone", !zone.error, JSON.stringify(zone.error));
+  const bZone = await ownerB.client.from("delivery_zones").select("id").eq("restaurant_id", restA.id);
+  check("Restaurant B cannot read A's zones", !bZone.error && bZone.data.length === 0, JSON.stringify(bZone));
+  const kZone = await kitchenA.client.from("delivery_zones").update({ delivery_fee: 0 }).eq("id", zone.data!.id).select("id");
+  check("Kitchen cannot change zones", kZone.error !== null || kZone.data.length === 0, JSON.stringify(kZone));
+  const delZone = await ownerA.client.from("delivery_zones").delete().eq("id", zone.data!.id).select("id");
+  check("Zones are never deleted (switch them off)", delZone.error !== null || delZone.data.length === 0, JSON.stringify(delZone));
+
+  // Two delivery orders made ready through the engine.
+  const { data: dish } = await admin.from("menu_items").select("id").eq("restaurant_id", restA.id).eq("name", "Biryani").limit(1).single();
+  const deps = { admin, pricing: admin };
+  const scope = { restaurantId: restA.id, branchIds: [restA.branchId] };
+  const owner: Actor = { type: "staff", userId: ownerA.id, role: "owner" };
+  const mkOrder = async (key: string, phone: string) => {
+    const r = await createOrder(
+      deps,
+      scope,
+      {
+        branchId: restA.branchId,
+        idempotencyKey: `rider-${key}-${RUN}`,
+        source: "phone",
+        orderType: "delivery",
+        paymentMethod: "cod",
+        customer: { phone, name: `Customer ${key}` },
+        address: { addressText: "House 12-B, Street 4", area: "DHA Phase 5", landmark: "near Masjid", save: true },
+        deliveryFee: 10000,
+        lines: [{ itemId: dish!.id, quantity: 1 }],
+      },
+      owner,
+      { initialStatus: "accepted" },
+    );
+    if (!r.ok) throw new Error(`order ${key}: ${r.message}`);
+    const moved = await transitionOrder(deps, scope, { orderId: r.data.id, expectedVersion: 1, path: ["preparing", "ready"] }, owner);
+    if (!moved.ok) throw new Error(`ready ${key}: ${moved.message}`);
+    return { id: r.data.id, version: moved.data.version };
+  };
+  const o1 = await mkOrder("o1", "0300-1110001");
+  const o2 = await mkOrder("o2", "0300-1110002");
+
+  section("Riders: assignment and what each rider can see");
+  const before = await riderA.client.from("orders").select("id").eq("id", o1.id);
+  check("A rider sees nothing before an order is assigned", !before.error && before.data.length === 0, JSON.stringify(before));
+  const kitchenAssign = await assignRider(deps, scope, { orderId: o1.id, riderId: riderA.riderId, expectedVersion: o1.version }, { type: "staff", userId: kitchenA.id, role: "kitchen" });
+  check("Kitchen cannot assign riders", !kitchenAssign.ok && kitchenAssign.code === "NOT_ALLOWED", JSON.stringify(kitchenAssign));
+  const a1 = await assignRider(deps, scope, { orderId: o1.id, riderId: riderA.riderId, expectedVersion: o1.version }, owner);
+  check("Owner assigns order 1 to rider A (order event written)", a1.ok && a1.data.changed, JSON.stringify(a1));
+  const { data: ev } = await admin.from("order_events").select("event_type, data").eq("order_id", o1.id).eq("event_type", "rider_assigned");
+  check("The timeline says who got it", ev?.length === 1 && (ev[0].data as { rider_name?: string }).rider_name === "Rider A", JSON.stringify(ev));
+  const seenA = await riderA.client.from("orders").select("id, customer_name, customer_phone, address_text, landmark, total").eq("id", o1.id);
+  check(
+    "Rider A sees their order with customer name, phone and address",
+    seenA.data?.length === 1 && seenA.data[0].customer_phone === "+923001110001" && !!seenA.data[0].address_text && !!seenA.data[0].landmark,
+    JSON.stringify(seenA),
+  );
+  const itemsA = await riderA.client.from("order_items").select("item_name").eq("order_id", o1.id);
+  check("Rider A sees the items of their order", (itemsA.data?.length ?? 0) === 1, JSON.stringify(itemsA));
+  const seenB = await riderB.client.from("orders").select("id").in("id", [o1.id, o2.id]);
+  check("Rider B can't see rider A's order (or unassigned ones)", !seenB.error && seenB.data.length === 0, JSON.stringify(seenB));
+  const allA = await riderA.client.from("orders").select("id").eq("restaurant_id", restA.id);
+  check("Rider A sees ONLY their own order", allA.data?.length === 1, JSON.stringify(allA.data));
+  for (const table of ["customers", "customer_addresses", "payments", "delivery_zones", "rider_settlements", "menu_media", "audit_logs"] as const) {
+    const r = await riderA.client.from(table).select("restaurant_id").eq("restaurant_id", restA.id);
+    check(`Riders can't read ${table}`, !!r.error || r.data.length === 0, JSON.stringify(r.data?.length ?? r.error));
+  }
+  const otherRider = await riderA.client.from("rider_profiles").select("id").eq("id", riderB.riderId);
+  check("Riders can't see other riders", !otherRider.error && otherRider.data.length === 0, JSON.stringify(otherRider));
+  const online = await riderA.client.from("rider_profiles").update({ is_online: true }).eq("id", riderA.riderId).select("id");
+  check("A rider can switch themselves online", !online.error && online.data.length === 1, JSON.stringify(online));
+  const rename = await riderA.client.from("rider_profiles").update({ name: "Boss" } as never).eq("id", riderA.riderId).select("id");
+  check("…but can't change their name (or anything else)", rename.error !== null, JSON.stringify(rename));
+  const otherOnline = await riderA.client.from("rider_profiles").update({ is_online: true }).eq("id", riderB.riderId).select("id");
+  check("…and can't switch another rider", otherOnline.error !== null || otherOnline.data.length === 0, JSON.stringify(otherOnline));
+  const direct = await riderA.client.from("orders").update({ status: "delivered" } as never).eq("id", o1.id).select("id");
+  check("Riders can't change orders directly (only through the server)", direct.error !== null || direct.data?.length === 0, JSON.stringify(direct));
+
+  section("Riders: picked up → delivered with cash → settlement");
+  const riderActorA: Actor = { type: "staff", userId: riderA.id, role: "rider" };
+  const riderActorB: Actor = { type: "staff", userId: riderB.id, role: "rider" };
+  const { data: cur1 } = await admin.from("orders").select("version").eq("id", o1.id).single();
+  const stolen = await transitionOrder(deps, scope, { orderId: o1.id, expectedVersion: cur1!.version, path: ["out_for_delivery"] }, riderActorB);
+  check("Rider B can't pick up rider A's order", !stolen.ok && stolen.code === "NOT_ALLOWED", JSON.stringify(stolen));
+  const skip = await transitionOrder(deps, scope, { orderId: o1.id, expectedVersion: cur1!.version, path: ["out_for_delivery", "delivered", "completed"] }, riderActorA);
+  check("Riders can't complete or skip steps beyond delivered", !skip.ok, JSON.stringify(skip));
+  const picked = await transitionOrder(deps, scope, { orderId: o1.id, expectedVersion: cur1!.version, path: ["out_for_delivery"] }, riderActorA);
+  check("Rider A: Picked up → out for delivery", picked.ok, JSON.stringify(picked));
+  const delivered = picked.ok ? await transitionOrder(deps, scope, { orderId: o1.id, expectedVersion: picked.data.version, path: ["delivered"] }, riderActorA) : null;
+  check("Rider A: Delivered", !!delivered?.ok, JSON.stringify(delivered));
+  const { data: o1row } = await admin.from("orders").select("total").eq("id", o1.id).single();
+  const short = await recordCodCollection(deps, scope, { orderId: o1.id, amount: o1row!.total - 5000 }, riderActorA);
+  check("A different cash amount needs a reason", !short.ok && short.code === "REASON_REQUIRED", JSON.stringify(short));
+  const cash = await recordCodCollection(deps, scope, { orderId: o1.id, amount: o1row!.total }, riderActorA);
+  const { data: paid } = await admin.from("orders").select("cod_collected_amount, payment_status, status").eq("id", o1.id).single();
+  check("Cash collected is saved; the order is paid", cash.ok && paid?.cod_collected_amount === o1row!.total && paid.payment_status === "paid", JSON.stringify(paid));
+  const deliveredSeen = await riderA.client.from("orders").select("id, status").eq("id", o1.id);
+  check("Delivered today is still visible to the rider", deliveredSeen.data?.[0]?.status === "delivered", JSON.stringify(deliveredSeen));
+
+  const badSettle = await admin.rpc("settle_rider_cash", { p_restaurant_id: restA.id, p_rider_id: riderA.riderId, p_order_ids: [o1.id], p_amount: 1, p_settled_by: ownerA.id });
+  check("Settling a different amount needs a note", badSettle.error?.message === "REASON_REQUIRED", JSON.stringify(badSettle.error));
+  const settled = await admin.rpc("settle_rider_cash", { p_restaurant_id: restA.id, p_rider_id: riderA.riderId, p_order_ids: [o1.id], p_amount: o1row!.total, p_settled_by: ownerA.id });
+  const { data: afterSettle } = await admin.from("orders").select("settlement_id").eq("id", o1.id).single();
+  check("Settlement links the orders (cash in hand back to 0)", !settled.error && !!afterSettle?.settlement_id, JSON.stringify(settled.error));
+  const again = await admin.rpc("settle_rider_cash", { p_restaurant_id: restA.id, p_rider_id: riderA.riderId, p_order_ids: [o1.id], p_amount: o1row!.total, p_settled_by: ownerA.id });
+  check("The same cash can't be settled twice", again.error?.message === "ALREADY_SETTLED", JSON.stringify(again.error));
+  const ownSettle = await ownerA.client.from("rider_settlements").select("amount").eq("rider_id", riderA.riderId);
+  check("Owner reads settlement history", ownSettle.data?.length === 1, JSON.stringify(ownSettle));
+  const settleRpc = await ownerA.client.rpc("settle_rider_cash", { p_restaurant_id: restA.id, p_rider_id: riderA.riderId, p_order_ids: [o2.id], p_amount: 0, p_settled_by: ownerA.id });
+  check("Settlements only through the server (RPC is service-role)", settleRpc.error !== null, JSON.stringify(settleRpc.error));
+
+  // Yesterday's delivered orders drop out of the rider's view.
+  await admin.from("orders").update({ delivered_at: new Date(Date.now() - 36 * 3600_000).toISOString() }).eq("id", o1.id);
+  const old = await riderA.client.from("orders").select("id").eq("id", o1.id);
+  check("Delivered on an earlier day → no longer visible to the rider", !old.error && old.data.length === 0, JSON.stringify(old));
+
+  section("Riders: reassign and failed delivery");
+  const { data: cur2 } = await admin.from("orders").select("version").eq("id", o2.id).single();
+  const toA = await assignRider(deps, scope, { orderId: o2.id, riderId: riderA.riderId, expectedVersion: cur2!.version }, owner);
+  const toB = toA.ok ? await assignRider(deps, scope, { orderId: o2.id, riderId: riderB.riderId, expectedVersion: toA.data.version }, owner) : null;
+  const aAfter = await riderA.client.from("orders").select("id").eq("id", o2.id);
+  const bAfter = await riderB.client.from("orders").select("id").eq("id", o2.id);
+  check("Reassigning removes the order from the first rider", !!toB?.ok && aAfter.data?.length === 0 && bAfter.data?.length === 1, JSON.stringify({ aAfter, bAfter }));
+  const { data: cust2 } = await admin.from("orders").select("customer_id, version").eq("id", o2.id).single();
+  const { data: refusedBefore } = await admin.from("customers").select("refused_count").eq("id", cust2!.customer_id!).single();
+  const p2 = await transitionOrder(deps, scope, { orderId: o2.id, expectedVersion: cust2!.version, path: ["out_for_delivery"] }, riderActorB);
+  const failed = p2.ok ? await transitionOrder(deps, scope, { orderId: o2.id, expectedVersion: p2.data.version, path: ["failed"], reason: "customer_refused" }, riderActorB) : null;
+  const { data: refusedAfter } = await admin.from("customers").select("refused_count").eq("id", cust2!.customer_id!).single();
+  const { data: failedRow } = await admin.from("orders").select("status, delivery_failed_reason").eq("id", o2.id).single();
+  check(
+    "Refused delivery → failed, reason saved, customer's refused count +1",
+    !!failed?.ok && failedRow?.status === "failed" && failedRow.delivery_failed_reason === "customer_refused" && refusedAfter!.refused_count === refusedBefore!.refused_count + 1,
+    JSON.stringify({ failed, failedRow, refusedBefore, refusedAfter }),
+  );
+
+  section("Riders: PIN login lock");
+  const lockPhone = `+92302${tail}9`.slice(0, 13);
+  type LockState = { failed_count: number; locked_until: string | null };
+  let last = null as LockState | null;
+  for (let i = 0; i < 5; i++) {
+    const r = await admin.rpc("rider_login_failed", { p_phone: lockPhone, p_max: 5, p_lock_minutes: 15 });
+    last = r.data as LockState | null;
+  }
+  check("5 wrong PINs → locked for 15 minutes", !!last?.locked_until && Date.parse(last.locked_until) - Date.now() > 14 * 60_000, JSON.stringify(last));
+  const anonLock = await createClient<Database>(url!, publishableKey!, noSession).rpc("rider_login_failed", { p_phone: lockPhone });
+  check("Nobody calls the lock counter from the browser", anonLock.error !== null, JSON.stringify(anonLock.error));
+  await admin.from("rider_login_attempts").delete().eq("phone", lockPhone);
 }
 
 /**
