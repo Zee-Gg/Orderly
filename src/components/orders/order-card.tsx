@@ -1,6 +1,6 @@
 "use client";
 
-import { Bot, Check, Clock, MapPin, PauseCircle, PhoneCall, TriangleAlert, Utensils } from "lucide-react";
+import { Bike, Bot, Check, Clock, MapPin, PauseCircle, PhoneCall, TriangleAlert, Utensils } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import type { Role } from "@/lib/auth/permissions";
 import { formatPKR } from "@/lib/money";
 import { minutesSince, timeAgo } from "@/lib/time";
 import { cn } from "@/lib/utils";
+import { AssignRider } from "./assign-rider";
 
 export type CardHandlers = {
   onOpen: (order: BoardOrder) => void;
@@ -128,6 +129,11 @@ export function OrderCard({
             <MapPin aria-hidden className="size-4 shrink-0" /> {order.area}
           </p>
         ) : null}
+        {order.orderType === "delivery" && order.riderName && (order.status === "ready" || order.status === "out_for_delivery") ? (
+          <p className="mt-1.5 flex items-center gap-1 text-sm font-semibold text-status-delivery-fg" data-testid="card-rider">
+            <Bike aria-hidden className="size-4 shrink-0" /> {order.riderName}
+          </p>
+        ) : null}
         {order.orderType === "dine_in" && order.tableNumber ? (
           <p className="mt-1.5 flex items-center gap-1 text-sm text-muted">
             <Utensils aria-hidden className="size-4 shrink-0" /> Table {order.tableNumber}
@@ -150,6 +156,11 @@ export function OrderCard({
         ) : null}
       </button>
 
+      {order.orderType === "delivery" && (order.status === "preparing" || order.status === "ready") ? (
+        <div className="px-4 pb-3">
+          <AssignRider order={order} compact />
+        </div>
+      ) : null}
       {isNew ? (
         <div className="grid grid-cols-[2fr_3fr] gap-2 px-4 pb-4">
           <Button
