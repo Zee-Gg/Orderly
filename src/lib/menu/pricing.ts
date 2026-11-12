@@ -667,6 +667,45 @@ export function buildBranchMenu(source: BranchMenuSource): BranchMenu {
   };
 }
 
+/**
+ * Price a choice straight from a branch menu item (customer menu page,
+ * Phase 8). Same engine (priceCartItem), same rules and errors — the page uses
+ * it to enforce choices and show live prices; the server re-prices from the
+ * database before anything is saved. Pure: safe in the browser.
+ */
+export function priceMenuItem(
+  restaurantId: string,
+  branchId: string,
+  item: Pick<BranchMenuItem, "id" | "name" | "nameUr" | "price" | "removableOptions" | "sizes" | "groups" | "isAvailable">,
+  choice: { variantId?: string | null; modifierOptionIds?: string[]; removals?: string[]; quantity: number },
+): PricingResult {
+  const data: ItemPricingData = {
+    item: {
+      id: item.id,
+      restaurantId,
+      name: item.name,
+      nameUr: item.nameUr,
+      basePrice: item.price,
+      isActive: true,
+      archived: false,
+      removableOptions: item.removableOptions,
+    },
+    category: { isActive: true, archived: false },
+    sizes: item.sizes.map((sz, i) => ({ ...sz, isActive: true, archived: false, sortOrder: i })),
+    groups: item.groups.map((g, gi) => ({
+      ...g,
+      archived: false,
+      sortOrder: gi,
+      options: g.options.map((o, oi) => ({ ...o, archived: false, sortOrder: oi })),
+    })),
+    branch: { id: branchId, restaurantId, isActive: true },
+    // `price` is already the branch price; sizes carry branch prices too.
+    branchSettings: { isAvailable: item.isAvailable, isHidden: false, priceOverride: null },
+    branchSizePrices: {},
+  };
+  return priceCartItem(data, { restaurantId, branchId, itemId: item.id, ...choice });
+}
+
 // ---------------------------------------------------------------------------
 // Loaders (database → plain data)
 // ---------------------------------------------------------------------------
