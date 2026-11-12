@@ -12,6 +12,9 @@ import type { OrderStatus, OrderType } from "./constants";
  *   ready                → out_for_delivery (delivery) | completed (pickup, dine-in) | cancelled (manager+)
  *   out_for_delivery     → delivered | failed
  *   delivered            → completed
+ *
+ * Riders (Phase 9): only ready → out_for_delivery → delivered | failed, and
+ * only on orders assigned to them (checked by the server action and the RPC).
  */
 export const TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   pending_confirmation: ["awaiting_acceptance", "cancelled"],
@@ -51,6 +54,10 @@ export function canTransition(args: {
   }
   if (args.isOnHold && to !== "cancelled") {
     return { ok: false, code: "ON_HOLD", message: "This order is on hold. Release it first." };
+  }
+  if (role === "rider") {
+    const riderOk = (from === "ready" && to === "out_for_delivery") || (from === "out_for_delivery" && (to === "delivered" || to === "failed"));
+    return riderOk ? { ok: true } : { ok: false, code: "ROLE_NOT_ALLOWED", message: "Riders can only pick up and deliver." };
   }
   if (!role || !can(role, "orders.update_status")) {
     return { ok: false, code: "ROLE_NOT_ALLOWED", message: "You can't change this order." };
