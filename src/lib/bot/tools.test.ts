@@ -224,7 +224,7 @@ describe("checkout tools", () => {
 
   it("restaurant info and order status come from the data", async () => {
     const s = await setup();
-    expect(await s.run("get_restaurant_info")).toMatchObject({ ok: true, name: "Cheezious", open_now: true, delivery_fee: "Rs 150", minimum_order_for_delivery: "Rs 500" });
+    expect(await s.run("get_restaurant_info")).toMatchObject({ ok: true, name: "Cheezious", open_now: true, default_delivery_fee: "Rs 150", minimum_order_for_delivery: "Rs 500" });
     expect(await s.run("check_order_status")).toMatchObject({ ok: true, orders: [] });
   });
 
