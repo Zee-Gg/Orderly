@@ -14,6 +14,16 @@ import {
 } from "./cart-tools";
 import { fail, type BotContext, type ToolResult } from "./context";
 import {
+  faqQuerySchema,
+  getBestsellersTool,
+  getOffersTool,
+  itemIdSchema,
+  searchFaqsTool,
+  sendItemPhotoTool,
+  sendLocationTool,
+  sendMenuTool,
+} from "./knowledge-tools";
+import {
   addressSchema,
   cancelSessionTool,
   checkOrderStatusTool,
@@ -76,9 +86,40 @@ export const BOT_TOOLS: Record<string, Def> = {
   },
   cancel_session: { description: "The customer wants to cancel this order before it is placed: clears the cart.", schema: emptySchema, run: cancelSessionTool },
   get_restaurant_info: {
-    description: "Restaurant name, open now or not, today's hours, address, phone, delivery fee, minimum order, payment methods.",
+    description:
+      "Restaurant name, open now or not, today's and the whole week's hours, address, phone, delivery fee, minimum order, rough delivery time, payment methods, dine-in yes/no.",
     schema: emptySchema,
     run: getRestaurantInfoTool,
+  },
+  send_menu: {
+    description: "Send the menu (the restaurant's menu images or PDF, or a short text menu). Use for 'menu', 'menu bhejo', 'menu dikhao'.",
+    schema: emptySchema,
+    run: sendMenuTool,
+  },
+  send_item_photo: {
+    description: "Send a photo of one dish with its name and price. Use when the customer wants to see a dish. Returns no_photo when there is none.",
+    schema: itemIdSchema,
+    run: sendItemPhotoTool,
+  },
+  get_bestsellers: {
+    description: "Up to 5 bestsellers / most popular items with prices. Use for 'best kya hai', 'recommend', 'famous kya hai'.",
+    schema: emptySchema,
+    run: getBestsellersTool,
+  },
+  get_offers: {
+    description: "Offers and deals active RIGHT NOW (with the price of the deal item). Use for 'deal', 'offer', 'discount'. Empty = no offers: never invent one.",
+    schema: emptySchema,
+    run: getOffersTool,
+  },
+  search_faqs: {
+    description: "The restaurant's saved answers (parking, family hall, birthdays, halal, delivery areas…). Answer only from the result.",
+    schema: faqQuerySchema,
+    run: searchFaqsTool,
+  },
+  send_location: {
+    description: "Send the branch location pin (or the address). Use for 'location', 'kahan ho', 'address bhejo'.",
+    schema: emptySchema,
+    run: sendLocationTool,
   },
   check_order_status: { description: "This customer's recent orders and their status.", schema: emptySchema, run: checkOrderStatusTool },
   handoff_to_staff: {
