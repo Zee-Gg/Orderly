@@ -77,5 +77,15 @@ export function paymentKindOf(method: PaymentMethod, status: PaymentStatus): Pay
   return method;
 }
 
+/**
+ * SALES = delivered + completed orders. The ONE definition used by /reports
+ * (report_* RPCs) and the top bar's "Orders today" / "Sales today".
+ * Cancelled and failed orders are never sales.
+ */
+export const SALE_STATUSES: readonly OrderStatus[] = ["delivered", "completed"];
+export function isSaleStatus(status: OrderStatus): boolean {
+  return SALE_STATUSES.includes(status);
+}
+
 /** Statuses that are finished and leave the live board. */
 export const FINISHED_STATUSES: readonly OrderStatus[] = ["delivered", "completed", "cancelled", "failed"];
