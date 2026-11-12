@@ -9,7 +9,7 @@
 import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
 import { DEMO_GROUPS, DEMO_MENU } from "../src/lib/menu/demo-menu";
-import { seedDemoMenu } from "../src/lib/menu/demo-menu-seed";
+import { seedDemoKnowledge, seedDemoMenu } from "../src/lib/menu/demo-menu-seed";
 
 process.loadEnvFile(".env.local");
 const slug = process.argv[2];
@@ -44,6 +44,8 @@ async function main() {
     `Seeded ${restaurant.name}: ${DEMO_MENU.length} categories, ${Object.keys(items).length} items, ${Object.keys(DEMO_GROUPS).length} extras groups.`,
   );
   console.log(`Loaded Fries is out of stock at ${branch.name}.`);
+  await seedDemoKnowledge(db, restaurant.id, branch.id, items);
+  console.log("Added the Friday Deal + Student Deal offers, 5 FAQs, and a location for the first branch (if it had none).");
 }
 
 main().catch((err) => {
