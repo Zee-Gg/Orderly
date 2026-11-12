@@ -1,5 +1,6 @@
 import type { BranchMenu, CartItemInput, PricingResult } from "@/lib/menu/pricing";
 import type { CreatedOrder, EngineResult } from "@/lib/orders/engine";
+import type { FaqRecord, OfferRecord } from "./knowledge";
 
 /** Shared bot types. No Next.js imports. */
 
@@ -71,15 +72,45 @@ export type BotSession = {
   transcript: TranscriptEntry[];
   lastActivityAt: string;
   createdAt: string;
+  /** The menu-page cart draft this session loaded (Phase 8, conversion stats). */
+  cartDraftId: string | null;
+  /** A menu-page code waiting for the customer to tap "Replace" or "Add". */
+  pendingCartCode: string | null;
+};
+
+/** A cart sent from the customer menu page (Phase 8). Choices only, never prices. */
+export type CartDraftLine = {
+  itemId: string;
+  variantId: string | null;
+  optionIds: string[];
+  removals: string[];
+  quantity: number;
+  notes: string;
+};
+
+export type CartDraft = {
+  id: string;
+  code: string;
+  branchId: string;
+  orderType: BotOrderType | null;
+  lines: CartDraftLine[];
+  expiresAt: string;
+  usedAt: string | null;
 };
 
 export type RestaurantInfo = {
   id: string;
   name: string;
+  /** For the menu page link (/m/[slug]). */
+  slug: string;
   phone: string | null;
   timezone: string;
   botEnabled: boolean;
   highValueCodThreshold: number;
+  /** Mention one current offer when a new chat starts. */
+  mentionOfferOnGreeting: boolean;
+  dineInAvailable: boolean;
+  paymentMethods: BotPaymentMethod[];
 };
 
 export type BranchInfo = {
@@ -94,7 +125,21 @@ export type BranchInfo = {
   phone: string | null;
   deliveryFee: number;
   minimumOrder: number;
+  latitude: number | null;
+  longitude: number | null;
+  mapsUrl: string | null;
+  /** All week, one line per day ("Mon: 12:00 PM – 11:00 PM"). */
+  weekHours: string;
+  prepMinutes: number;
+  deliveryMinutes: number;
 };
+
+/** Something a tool sends besides the text reply (image, PDF, location pin, extra text). */
+export type BotMedia =
+  | { kind: "image"; url: string; caption?: string }
+  | { kind: "document"; url: string; fileName: string; caption?: string }
+  | { kind: "location"; latitude: number; longitude: number; name: string; address: string }
+  | { kind: "text"; text: string };
 
 export type CustomerInfo = {
   id: string;
@@ -168,5 +213,17 @@ export interface BotStore {
   /** The order engine (createOrder, source whatsapp, status awaiting_acceptance). */
   createOrder(input: BotOrderInput): Promise<EngineResult<CreatedOrder>>;
   setRiskFlag(restaurantId: string, orderId: string, flag: string): Promise<void>;
+  /** Active menu images/PDF for a branch (branch-specific + all-branch), in order, with public URLs. */
+  getMenuMedia(restaurantId: string, branchId: string): Promise<{ type: "image" | "pdf"; url: string; fileName: string | null }[]>;
+  getOffers(restaurantId: string): Promise<OfferRecord[]>;
+  getFaqs(restaurantId: string): Promise<FaqRecord[]>;
+  /** Items by quantity sold at this branch since a date (bestsellers). */
+  getBestsellerCounts(restaurantId: string, branchId: string, sinceIso: string): Promise<{ itemId: string; quantity: number }[]>;
+  /** A WhatsApp-ready (JPEG) public URL for an item photo, or null. */
+  getItemPhotoUrl(restaurantId: string, itemId: string, imageUrl: string | null): Promise<string | null>;
+  /** A menu-page cart draft by code (any state: used/expired too), or null. */
+  findCartDraft(restaurantId: string, code: string): Promise<CartDraft | null>;
+  /** Marks a draft used — atomically, only if unused and not expired. True = this caller got it. */
+  claimCartDraft(restaurantId: string, draftId: string, by: { customerId: string | null; sessionId: string; now: Date }): Promise<boolean>;
   logTurn(row: AiLogRow): Promise<void>;
 }
