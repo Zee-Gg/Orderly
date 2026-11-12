@@ -234,6 +234,7 @@ export type Database = {
           delivery_address_text: string | null
           delivery_area: string | null
           delivery_landmark: string | null
+          delivery_zone: Json | null
           failed_attempts: number
           handoff_reason: string | null
           id: string
@@ -262,6 +263,7 @@ export type Database = {
           delivery_address_text?: string | null
           delivery_area?: string | null
           delivery_landmark?: string | null
+          delivery_zone?: Json | null
           failed_attempts?: number
           handoff_reason?: string | null
           id?: string
@@ -290,6 +292,7 @@ export type Database = {
           delivery_address_text?: string | null
           delivery_area?: string | null
           delivery_landmark?: string | null
+          delivery_zone?: Json | null
           failed_attempts?: number
           handoff_reason?: string | null
           id?: string
@@ -476,12 +479,14 @@ export type Database = {
           late_order_minutes: number
           latitude: number | null
           longitude: number | null
+          max_delivery_radius_km: number | null
           minimum_order: number
           name: string
           opening_hours: Json | null
           phone: string | null
           restaurant_id: string
           staff_orders_need_acceptance: boolean
+          unlisted_area_policy: string
           updated_at: string
         }
         Insert: {
@@ -501,12 +506,14 @@ export type Database = {
           late_order_minutes?: number
           latitude?: number | null
           longitude?: number | null
+          max_delivery_radius_km?: number | null
           minimum_order?: number
           name: string
           opening_hours?: Json | null
           phone?: string | null
           restaurant_id: string
           staff_orders_need_acceptance?: boolean
+          unlisted_area_policy?: string
           updated_at?: string
         }
         Update: {
@@ -526,12 +533,14 @@ export type Database = {
           late_order_minutes?: number
           latitude?: number | null
           longitude?: number | null
+          max_delivery_radius_km?: number | null
           minimum_order?: number
           name?: string
           opening_hours?: Json | null
           phone?: string | null
           restaurant_id?: string
           staff_orders_need_acceptance?: boolean
+          unlisted_area_policy?: string
           updated_at?: string
         }
         Relationships: [
@@ -742,6 +751,66 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "customers_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      delivery_zones: {
+        Row: {
+          aliases: string[]
+          branch_id: string
+          created_at: string
+          delivery_fee: number
+          estimated_minutes: number | null
+          id: string
+          is_active: boolean
+          minimum_order: number
+          name: string
+          restaurant_id: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          aliases?: string[]
+          branch_id: string
+          created_at?: string
+          delivery_fee?: number
+          estimated_minutes?: number | null
+          id?: string
+          is_active?: boolean
+          minimum_order?: number
+          name: string
+          restaurant_id: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          aliases?: string[]
+          branch_id?: string
+          created_at?: string
+          delivery_fee?: number
+          estimated_minutes?: number | null
+          id?: string
+          is_active?: boolean
+          minimum_order?: number
+          name?: string
+          restaurant_id?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "delivery_zones_branch_id_restaurant_id_fkey"
+            columns: ["branch_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "delivery_zones_restaurant_id_fkey"
             columns: ["restaurant_id"]
             isOneToOne: false
             referencedRelation: "restaurants"
@@ -1524,11 +1593,14 @@ export type Database = {
           accepted_at: string | null
           address_text: string | null
           area: string | null
+          assigned_at: string | null
           branch_id: string
           cancel_note: string | null
           cancel_reason: string | null
           cancelled_at: string | null
           cancelled_by: string | null
+          cod_collected_amount: number | null
+          cod_collected_at: string | null
           completed_at: string | null
           created_at: string
           created_by: string | null
@@ -1536,7 +1608,9 @@ export type Database = {
           customer_name: string | null
           customer_phone: string | null
           delivered_at: string | null
+          delivery_failed_reason: string | null
           delivery_fee: number
+          delivery_zone_id: string | null
           discount: number
           dispatched_at: string | null
           expected_ready_at: string | null
@@ -1560,6 +1634,7 @@ export type Database = {
           risk_flag: string | null
           scheduled_for: string | null
           service_charge: number
+          settlement_id: string | null
           source: Database["public"]["Enums"]["order_source"]
           status: Database["public"]["Enums"]["order_status"]
           subtotal: number
@@ -1573,11 +1648,14 @@ export type Database = {
           accepted_at?: string | null
           address_text?: string | null
           area?: string | null
+          assigned_at?: string | null
           branch_id: string
           cancel_note?: string | null
           cancel_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
+          cod_collected_amount?: number | null
+          cod_collected_at?: string | null
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
@@ -1585,7 +1663,9 @@ export type Database = {
           customer_name?: string | null
           customer_phone?: string | null
           delivered_at?: string | null
+          delivery_failed_reason?: string | null
           delivery_fee?: number
+          delivery_zone_id?: string | null
           discount?: number
           dispatched_at?: string | null
           expected_ready_at?: string | null
@@ -1609,6 +1689,7 @@ export type Database = {
           risk_flag?: string | null
           scheduled_for?: string | null
           service_charge?: number
+          settlement_id?: string | null
           source: Database["public"]["Enums"]["order_source"]
           status: Database["public"]["Enums"]["order_status"]
           subtotal: number
@@ -1622,11 +1703,14 @@ export type Database = {
           accepted_at?: string | null
           address_text?: string | null
           area?: string | null
+          assigned_at?: string | null
           branch_id?: string
           cancel_note?: string | null
           cancel_reason?: string | null
           cancelled_at?: string | null
           cancelled_by?: string | null
+          cod_collected_amount?: number | null
+          cod_collected_at?: string | null
           completed_at?: string | null
           created_at?: string
           created_by?: string | null
@@ -1634,7 +1718,9 @@ export type Database = {
           customer_name?: string | null
           customer_phone?: string | null
           delivered_at?: string | null
+          delivery_failed_reason?: string | null
           delivery_fee?: number
+          delivery_zone_id?: string | null
           discount?: number
           dispatched_at?: string | null
           expected_ready_at?: string | null
@@ -1658,6 +1744,7 @@ export type Database = {
           risk_flag?: string | null
           scheduled_for?: string | null
           service_charge?: number
+          settlement_id?: string | null
           source?: Database["public"]["Enums"]["order_source"]
           status?: Database["public"]["Enums"]["order_status"]
           subtotal?: number
@@ -1683,11 +1770,32 @@ export type Database = {
             referencedColumns: ["id", "restaurant_id"]
           },
           {
+            foreignKeyName: "orders_delivery_zone_fk"
+            columns: ["delivery_zone_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "delivery_zones"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
             foreignKeyName: "orders_restaurant_id_fkey"
             columns: ["restaurant_id"]
             isOneToOne: false
             referencedRelation: "restaurants"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "orders_rider_fk"
+            columns: ["rider_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "rider_profiles"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "orders_settlement_fk"
+            columns: ["settlement_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "rider_settlements"
+            referencedColumns: ["id", "restaurant_id"]
           },
         ]
       }
@@ -1851,6 +1959,7 @@ export type Database = {
           payment_methods: string[]
           phone: string | null
           receipt_paper_width: string
+          share_rider_phone_with_customer: boolean
           slug: string
           status: Database["public"]["Enums"]["restaurant_status"]
           timezone: string
@@ -1877,6 +1986,7 @@ export type Database = {
           payment_methods?: string[]
           phone?: string | null
           receipt_paper_width?: string
+          share_rider_phone_with_customer?: boolean
           slug: string
           status?: Database["public"]["Enums"]["restaurant_status"]
           timezone?: string
@@ -1903,6 +2013,7 @@ export type Database = {
           payment_methods?: string[]
           phone?: string | null
           receipt_paper_width?: string
+          share_rider_phone_with_customer?: boolean
           slug?: string
           status?: Database["public"]["Enums"]["restaurant_status"]
           timezone?: string
@@ -1912,6 +2023,142 @@ export type Database = {
           whatsapp_status_messages?: Json
         }
         Relationships: []
+      }
+      rider_login_attempts: {
+        Row: {
+          failed_count: number
+          locked_until: string | null
+          phone: string
+          updated_at: string
+        }
+        Insert: {
+          failed_count?: number
+          locked_until?: string | null
+          phone: string
+          updated_at?: string
+        }
+        Update: {
+          failed_count?: number
+          locked_until?: string | null
+          phone?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      rider_profiles: {
+        Row: {
+          branch_id: string
+          created_at: string
+          id: string
+          is_active: boolean
+          is_online: boolean
+          name: string
+          phone: string
+          restaurant_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          branch_id: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_online?: boolean
+          name: string
+          phone: string
+          restaurant_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          branch_id?: string
+          created_at?: string
+          id?: string
+          is_active?: boolean
+          is_online?: boolean
+          name?: string
+          phone?: string
+          restaurant_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rider_profiles_branch_id_restaurant_id_fkey"
+            columns: ["branch_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "rider_profiles_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      rider_settlements: {
+        Row: {
+          amount: number
+          branch_id: string
+          created_at: string
+          expected_amount: number
+          id: string
+          notes: string | null
+          order_ids: string[]
+          restaurant_id: string
+          rider_id: string
+          settled_by: string | null
+        }
+        Insert: {
+          amount: number
+          branch_id: string
+          created_at?: string
+          expected_amount: number
+          id?: string
+          notes?: string | null
+          order_ids: string[]
+          restaurant_id: string
+          rider_id: string
+          settled_by?: string | null
+        }
+        Update: {
+          amount?: number
+          branch_id?: string
+          created_at?: string
+          expected_amount?: number
+          id?: string
+          notes?: string | null
+          order_ids?: string[]
+          restaurant_id?: string
+          rider_id?: string
+          settled_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "rider_settlements_branch_id_restaurant_id_fkey"
+            columns: ["branch_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "branches"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+          {
+            foreignKeyName: "rider_settlements_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "rider_settlements_rider_id_restaurant_id_fkey"
+            columns: ["rider_id", "restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "rider_profiles"
+            referencedColumns: ["id", "restaurant_id"]
+          },
+        ]
       }
       whatsapp_accounts: {
         Row: {
@@ -2270,6 +2517,16 @@ export type Database = {
         Args: { p_audit: Json; p_changes: Json; p_restaurant_id: string }
         Returns: number
       }
+      assign_order_rider: {
+        Args: {
+          p_actor_user_id: string
+          p_expected_version: number
+          p_order_id: string
+          p_restaurant_id: string
+          p_rider_id: string
+        }
+        Returns: Json
+      }
       bot_bestsellers: {
         Args: {
           p_branch_id: string
@@ -2310,6 +2567,16 @@ export type Database = {
         Returns: Json
       }
       is_slug_available: { Args: { p_slug: string }; Returns: boolean }
+      record_cod_collection: {
+        Args: {
+          p_actor_user_id: string
+          p_amount: number
+          p_note: string
+          p_order_id: string
+          p_restaurant_id: string
+        }
+        Returns: Json
+      }
       record_menu_page_view: {
         Args: { p_branch_id: string; p_restaurant_id: string }
         Returns: undefined
@@ -2332,6 +2599,10 @@ export type Database = {
       reorder_menu_items: {
         Args: { p_category_id: string; p_ids: string[] }
         Returns: undefined
+      }
+      rider_login_failed: {
+        Args: { p_lock_minutes?: number; p_max?: number; p_phone: string }
+        Returns: Json
       }
       save_menu_item: {
         Args: { p_item: Json; p_restaurant_id: string }
@@ -2357,6 +2628,17 @@ export type Database = {
           p_order_id: string
           p_reason: string
           p_restaurant_id: string
+        }
+        Returns: Json
+      }
+      settle_rider_cash: {
+        Args: {
+          p_amount: number
+          p_notes?: string
+          p_order_ids: string[]
+          p_restaurant_id: string
+          p_rider_id: string
+          p_settled_by: string
         }
         Returns: Json
       }
@@ -2412,6 +2694,9 @@ export type Database = {
         | "payment_updated"
         | "note_added"
         | "printed"
+        | "rider_assigned"
+        | "rider_unassigned"
+        | "cash_collected"
       order_source: "whatsapp" | "phone" | "walk_in" | "web"
       order_status:
         | "pending_confirmation"
@@ -2597,6 +2882,9 @@ export const Constants = {
         "payment_updated",
         "note_added",
         "printed",
+        "rider_assigned",
+        "rider_unassigned",
+        "cash_collected",
       ],
       order_source: ["whatsapp", "phone", "walk_in", "web"],
       order_status: [
