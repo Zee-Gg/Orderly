@@ -14,6 +14,7 @@ import { MoneyInput } from "@/components/ui/money-input";
 import { Select } from "@/components/ui/select";
 import { Tabs } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { findZone } from "@/lib/delivery/zones";
 import { useToast } from "@/components/ui/toast";
 import type { BranchMenu, BranchMenuItem } from "@/lib/menu/pricing";
 import {
@@ -57,6 +58,9 @@ function toInputLine(line: ComposerLine): Omit<ComposerLine, "key"> {
   return { itemId: line.itemId, variantId: line.variantId, optionIds: line.optionIds, removals: line.removals, quantity: line.quantity, notes: line.notes };
 }
 
+/** Phase 9: areas per branch with their fee (fills the delivery fee). */
+export type ComposerZones = Record<string, { defaultFee: number; zones: { id: string; name: string; aliases: string[]; deliveryFee: number; minimumOrder: number }[] }>;
+
 export function OrderComposer({
   branches,
   initialBranchId,
@@ -64,7 +68,12 @@ export function OrderComposer({
   canDiscount,
   canOverrideBlock,
   editOrder,
+  zones = {},
+  canChangeFee = true,
 }: {
+  zones?: ComposerZones;
+  /** Without it the fee comes from the area (or the branch default). */
+  canChangeFee?: boolean;
   branches: { id: string; name: string }[];
   initialBranchId: string;
   initialMenu: BranchMenu;
@@ -105,7 +114,20 @@ export function OrderComposer({
   const [addressText, setAddressText] = useState(editOrder?.addressText ?? "");
   const [area, setArea] = useState(editOrder?.area ?? "");
   const [landmark, setLandmark] = useState(editOrder?.landmark ?? "");
-  const [deliveryFee, setDeliveryFee] = useState(paisaToInput(editOrder?.deliveryFee ?? 0));
+  const [deliveryFee, setDeliveryFee] = useState(paisaToInput(editOrder?.deliveryFee ?? zones[initialBranchId]?.defaultFee ?? 0));
+  const [zoneId, setZoneId] = useState<string | null>(null);
+  const branchZones = zones[branchId]?.zones ?? [];
+  function chooseZone(id: string | null, areaText?: string) {
+    setZoneId(id);
+    const z = branchZones.find((x) => x.id === id);
+    if (z) {
+      setArea(z.name);
+      setDeliveryFee(paisaToInput(z.deliveryFee));
+    } else {
+      if (areaText !== undefined) setArea(areaText);
+      setDeliveryFee(paisaToInput(zones[branchId]?.defaultFee ?? 0));
+    }
+  }
   const [tableNumber, setTableNumber] = useState(editOrder?.tableNumber ?? "");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>(editOrder?.paymentMethod ?? "cod");
   const [notes, setNotes] = useState(editOrder?.notes ?? "");
@@ -162,6 +184,8 @@ export function OrderComposer({
         return;
       }
       setBranchId(id);
+      setZoneId(null);
+      setDeliveryFee(paisaToInput(zones[id]?.defaultFee ?? 0));
       setMenu(result.data);
       setCategory(result.data.categories[0]?.id ?? "");
       setLines([]);
@@ -203,6 +227,11 @@ export function OrderComposer({
       if (addr) {
         setAddressText((a) => a || addr.addressText);
         setArea((a) => a || (addr.area ?? ""));
+        // A saved address in a known area → that area's fee.
+        if (addr.area && !editing) {
+          const match = findZone(branchZones.map((z) => ({ ...z, estimatedMinutes: null, isActive: true })), addr.area);
+          if (match) chooseZone(match.zone.id);
+        }
         setLandmark((a) => a || (addr.landmark ?? ""));
       }
     }, 350);
@@ -227,6 +256,7 @@ export function OrderComposer({
       tableNumber,
       notes,
       deliveryFee: feePaisa,
+      deliveryZoneId: orderType === "delivery" ? zoneId : null,
       discount: discountPaisa,
       lines: lines.map(toInputLine),
     };
@@ -376,10 +406,32 @@ export function OrderComposer({
           <>
             <Textarea label="Address" value={addressText} onChange={(e) => setAddressText(e.target.value)} rows={2} error={errors["address.addressText"]} />
             <div className="grid grid-cols-2 gap-2">
-              <Input label="Area" value={area} onChange={(e) => setArea(e.target.value)} placeholder="Gulberg III" />
+              {branchZones.length ? (
+                <Select
+                  label="Area"
+                  value={zoneId ?? ""}
+                  onChange={(e) => chooseZone(e.target.value || null, e.target.value ? undefined : "")}
+                  placeholder="Other area…"
+                  options={branchZones.map((z) => ({ value: z.id, label: `${z.name} · ${formatPKR(z.deliveryFee)}` }))}
+                  data-testid="composer-area"
+                />
+              ) : (
+                <Input label="Area" value={area} onChange={(e) => setArea(e.target.value)} placeholder="Gulberg III" />
+              )}
               <Input label="Landmark" value={landmark} onChange={(e) => setLandmark(e.target.value)} placeholder="Near mosque" />
             </div>
-            <MoneyInput label="Delivery fee" value={deliveryFee} onChange={(e) => setDeliveryFee(e.target.value)} wrapperClassName="max-w-44" error={errors.deliveryFee} />
+            {branchZones.length && !zoneId ? (
+              <Input label="Other area name" value={area} onChange={(e) => setArea(e.target.value)} placeholder="Gulberg III" />
+            ) : null}
+            <MoneyInput
+              label="Delivery fee"
+              value={deliveryFee}
+              onChange={(e) => setDeliveryFee(e.target.value)}
+              disabled={!canChangeFee}
+              hint={!canChangeFee ? "From the area. A manager can change it." : undefined}
+              wrapperClassName="max-w-44"
+              error={errors.deliveryFee}
+            />
           </>
         ) : null}
         {orderType === "dine_in" ? (
