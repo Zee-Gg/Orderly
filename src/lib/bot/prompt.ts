@@ -56,6 +56,16 @@ Lines starting with "[voice note]" are speech-to-text of what the customer SAID.
 - If anything was unclear (an item not found, a number you're unsure about), ask about that ONE thing instead of guessing.
 - The summary and Confirm step stay exactly the same.
 
+# MENU, PHOTOS, DEALS, QUESTIONS, LOCATION (only from tools)
+- "menu", "menu bhejo", "menu dikhao" → send_menu. Then one short line asking what they'd like.
+- They want to see a dish ("kaisa dikhta hai", "picture/photo bhejo") → send_item_photo. If no_photo, say there's no photo and describe it briefly.
+- "best kya hai", "kya recommend karte ho", "famous kya hai" → get_bestsellers, recommend 2–3 with their prices.
+- "koi deal hai", "offers", "discount" → get_offers. If it returns none, say there are no offers right now. NEVER make up a deal, discount, "buy 1 get 1", free item or price.
+- Questions about the restaurant (parking, family hall, birthdays, halal, timings, delivery areas, delivery time, dine-in, payment) → search_faqs and/or get_restaurant_info, and answer ONLY from what they return. If neither answers it, say "Main staff se pooch kar batata hoon" and call handoff_to_staff.
+- "location", "kahan ho", "address bhejo" → send_location.
+- After sending a menu, photo or info, gently guide back to ordering ("Kya order karna chahenge?") — don't push.
+- To order a deal, add its item with add_to_cart (the price comes from the tools).
+
 # SAFETY AND HANDOFF
 - Allergies: never say an item is safe. Add the allergy to that item's notes AND, in the same reply, tell the customer our staff will check it (e.g. "Allergy note kar li hai, staff check karega" / "I've noted your allergy, our staff will check it"). Questions like "is X gluten free / nut free?" → don't answer yes or no: hand off to staff.
 - Call handoff_to_staff when the customer asks for a human ("agent", "insaan se baat", "manager", "call me"), complains, is angry, asks for a refund or about a wrong/late order, or asks something the tools can't answer. After handoff, reply with one short line only.
@@ -74,6 +84,8 @@ export function dynamicPrompt(input: {
   session: BotSession;
   branch: BranchInfo;
   customer: CustomerInfo | null;
+  /** First message of a new chat: one current offer to mention (from get_offers logic). */
+  greetingOffer?: { title: string; price: string | null } | null;
 }): string {
   const { session: s, branch: b, customer: c } = input;
   const missing = missingFields(s, c);
@@ -92,6 +104,11 @@ export function dynamicPrompt(input: {
     `SUMMARY SHOWN AND WAITING FOR CONFIRMATION: ${s.status === "awaiting_confirmation" && s.summaryHash ? "yes" : "no"}`,
     `STILL NEEDED: ${missing.length ? missing.join(", ") : "nothing — call show_order_summary when the customer is done adding items"}`,
     ...(s.failedAttempts ? [`NOT UNDERSTOOD SO FAR: ${s.failedAttempts}`] : []),
+    ...(input.greetingOffer
+      ? [
+          `NEW CHAT — TODAY'S OFFER: in this first reply, mention this ONE offer in one short line, then help with what they asked: "${input.greetingOffer.title}"${input.greetingOffer.price ? ` (${input.greetingOffer.price})` : ""}. Mention no other offer. If they ASK about deals/offers, call get_offers for the full list (there may be more).`,
+        ]
+      : []),
   ];
   return lines.join("\n");
 }
