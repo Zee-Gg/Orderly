@@ -1,5 +1,5 @@
 import type { BotButton, BotTurnResult } from "./agent";
-import type { BotSession } from "./types";
+import type { BotMedia, BotSession } from "./types";
 
 /**
  * Shared by the playground's server action (text) and its voice route, so a
@@ -20,6 +20,8 @@ export type PlaygroundSession = Pick<
 export type PlaygroundTurn = {
   replyText: string | null;
   showButtons: BotButton[] | null;
+  /** Sent before the reply: menu images/PDF, dish photos, location pins. */
+  media: BotMedia[];
   orderCreated: { id: string; orderNumber: number } | null;
   handedOff: boolean;
   session: PlaygroundSession;
@@ -67,6 +69,7 @@ export function toPlaygroundTurn(r: BotTurnResult): PlaygroundTurn {
   return {
     replyText: r.replyText,
     showButtons: r.showButtons,
+    media: r.media ?? [],
     orderCreated: r.orderCreated,
     handedOff: r.handedOff,
     session: viewSession(r.session),
