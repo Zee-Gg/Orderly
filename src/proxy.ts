@@ -42,7 +42,8 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Skip static files, images, and public webhook endpoints.
-    "/((?!_next/static|_next/image|favicon.ico|api/webhooks|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // Skip static files, images, public webhook endpoints, and the public
+    // customer menu + its API (no session needed: saves a round trip on slow phones).
+    "/((?!_next/static|_next/image|favicon.ico|api/webhooks|api/public/|m/|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
