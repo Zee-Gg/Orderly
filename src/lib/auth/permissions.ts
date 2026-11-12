@@ -57,6 +57,10 @@ export const PERMISSIONS = {
   "riders.view": FRONT_OF_HOUSE,
   "riders.manage": MANAGEMENT,
   "riders.assign": FRONT_OF_HOUSE,
+  /** Delivery zones, radius, unlisted-area rule (/settings/delivery). */
+  "delivery.manage": MANAGEMENT,
+  /** Type a delivery fee different from the area's fee on the order screen. */
+  "orders.delivery_fee": MANAGEMENT,
   "customers.view": FRONT_OF_HOUSE,
   /** Notes and tags. */
   "customers.edit": FRONT_OF_HOUSE,
