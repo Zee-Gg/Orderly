@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
-import { seedDemoMenu } from "@/lib/menu/demo-menu-seed";
+import { seedDemoKnowledge, seedDemoMenu } from "@/lib/menu/demo-menu-seed";
 import type { Database } from "@/types/database";
 
 /**
@@ -7,6 +7,7 @@ import type { Database } from "@/types/database";
  *  - "Clifton" branch: open 24h, delivery fee Rs 150, minimum order Rs 500
  *    (Loaded Fries is out of stock here)
  *  - "Night Branch": switched off (closed)
+ *  - Phase 7C knowledge: Friday Deal + Student Deal offers, 5 FAQs, Clifton pin
  * Scripts/tests only (service-role client). Call cleanup() at the end.
  */
 export type BotTestRestaurant = {
@@ -64,6 +65,7 @@ export async function createBotTestRestaurant(
   if (cErr || !closed) throw cErr ?? new Error("closed branch failed");
 
   const itemIds = await seedDemoMenu(admin, restaurantId, open.id);
+  await seedDemoKnowledge(admin, restaurantId, open.id, itemIds);
 
   return {
     restaurantId,
