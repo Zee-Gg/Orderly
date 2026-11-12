@@ -1,25 +1,35 @@
 import type { Metadata } from "next";
-import { Bike } from "lucide-react";
 import { Suspense } from "react";
-import { PermissionGate } from "@/components/auth/permission-gate";
-import { EmptyState } from "@/components/ui/empty-state";
-import { SkeletonList } from "@/components/ui/skeleton";
 import { PageHeader } from "@/components/shell/page-header";
+import { SkeletonList } from "@/components/ui/skeleton";
+import { can } from "@/lib/auth/permissions";
+import { requirePermission } from "@/lib/auth/session";
+import { getRiders } from "@/lib/riders/queries";
+import { RidersManager } from "./riders-manager";
 
 export const metadata: Metadata = { title: "Riders" };
+
+/** Riders (Phase 9): online status, deliveries, cash in hand; add/edit/PIN/settle (owner/manager). */
+async function Riders() {
+  const ctx = await requirePermission("riders.view", { onDenied: "redirect" });
+  const riders = await getRiders(ctx, { includeInactive: true });
+  return (
+    <>
+      <PageHeader title="Riders" description="Your delivery riders, their orders today and the cash they are holding." />
+      <RidersManager
+        riders={riders}
+        branches={ctx.branches.map((b) => ({ id: b.id, name: b.name }))}
+        restaurantId={ctx.restaurant.id}
+        canManage={can(ctx.role, "riders.manage")}
+      />
+    </>
+  );
+}
 
 export default function RidersPage() {
   return (
     <Suspense fallback={<SkeletonList />}>
-      <PermissionGate action="riders.view">
-        <PageHeader title="Riders" description="Delivery riders and their orders." />
-        <EmptyState
-          tone="delivery"
-          icon={<Bike />}
-          title="No riders added"
-          description="Add your riders with their phone number. They get a simple page to see orders and cash to collect."
-        />
-      </PermissionGate>
+      <Riders />
     </Suspense>
   );
 }
