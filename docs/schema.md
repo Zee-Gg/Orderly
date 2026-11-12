@@ -313,6 +313,17 @@ Migration `20261116100000_voice.sql`.
 - `whatsapp_messages.transcript` (≤ 4000), `transcribe_provider` — saved by the server after transcribing a voice note.
 - `ai_logs.type` (`chat` | `transcription`, default chat): every transcription is logged with provider, model, latency, cost (USD per audio minute from `TRANSCRIBE_COST_PER_MINUTE`).
 
+### Phase 7C — bot knowledge ✅
+Migration `20261117100000_bot_knowledge.sql`. All members read; owner/manager write (column grants); the bot reads with the service role, scoped by restaurant.
+- `restaurants.mention_offer_on_greeting` (bool, default true), `dine_in_available` (bool, default true), `payment_methods` (text[] ⊆ {cod, card_on_delivery}, at least one). Owner-only writes (restaurants RLS).
+- `branches.google_maps_url` (≤ 500), `delivery_minutes` (int 0–600, default 30; bot says "about prep + delivery minutes"). Address/area/latitude/longitude already existed.
+- `menu_media`: id, restaurant_id, branch_id (null = all branches; composite FK), type `image|pdf`, storage_path, file_name, size_bytes, sort_order, is_active, uploaded_at (not writable from the browser), updated_at. The bot sends up to 5 active images, else the PDF, else a text menu.
+- `offers`: id, restaurant_id, branch_id (null = all), title, title_ur, description, **menu_item_id (required, composite FK → menu_items: the price always comes from the pricing engine)**, image_path, starts_at, ends_at (null = no end), days_of_week smallint[] (ISO 1 = Mon … 7 = Sun; null = every day), start_time/end_time (both or neither; a window may cross midnight), is_active, sort_order. Offers aren't referenced by orders, so they can be deleted.
+- `restaurant_faqs`: id, restaurant_id, question, answer (blank = ignored by the bot), answer_ur, keywords text[], is_active, sort_order.
+- Storage: public bucket `bot-media` (20 MB, JPEG/PNG/PDF) at `{restaurant_id}/menu|offers|photos/…`; owner/manager write their own folder. `photos/` = server-made JPEG copies of item photos (WhatsApp can't send WebP).
+- RPC `bot_bestsellers(restaurant_id, branch_id, since, limit)` → (item_id, quantity), service role only.
+- "Menu image may show old prices": newest active `menu_media.uploaded_at` < newest audit log `menu_item.price_changed | modifier_option.price_changed | menu.bulk_price_update | menu_item.created`.
+
 ---
 
 ## Phase 7 — Payments (records only, no gateways in MVP)
@@ -325,7 +336,14 @@ id, restaurant_id, order_id, payment_id, amount_paisa, reason, created_by, creat
 
 ---
 
-## Phase 8 — Reports
+## Phase 8 — Customer menu page ✅
+Migration `20261118100000_menu_page.sql`. The page `/m/[slug]` builds a cart; the customer sends a short code on WhatsApp; the bot loads it. Orders are still created ONLY by the bot's confirm flow.
+- `cart_drafts`: id, code (4–5 chars from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, ≥ 1 letter and ≥ 1 digit; unique per restaurant), restaurant_id, branch_id (composite FK), order_type (delivery | pickup | null), lines jsonb (1–30 × `{ item_id, variant_id, option_ids, removals, quantity, notes }` — choices only, never prices), language (english | urdu), created_at, expires_at (+2 h), used_at, used_by_customer_id (composite FK to customers), session_id (bot_sessions), created_ip_hash (HMAC, never the raw IP). No personal data. Written/read by the server only (service role); owners/managers may select the stats columns (not lines, not the IP hash).
+- `bot_sessions.cart_draft_id` (the draft this session loaded → conversion stats), `bot_sessions.pending_cart_code` (a code waiting for "Replace / Add").
+- `menu_page_views`: (restaurant_id, branch_id, day) → views. RPC `record_menu_page_view(restaurant_id, branch_id)` (service role; today in the restaurant's time zone). Owners/managers read.
+- RPC `get_public_menu_info(slug, branch_id?)` (anon + authenticated): restaurant (name, slug, logo, time zone), active branches (hours, open switch, delivery fee, minimum order, prep + delivery minutes), the chosen/default branch (WhatsApp account's branch, else the first), WhatsApp display number, offers not yet ended, bestseller item ids (tagged first, then 30-day top sellers). Only trial/active restaurants. No prices: the page takes them from the pricing engine (`getBranchMenu`).
+
+## Phase 9 — Reports
 No new tables at first: SQL views / RPCs over `orders` and `order_items` (daily sales, top items, busy hours), filtered by `restaurant_id` and branch access. Add materialized daily rollups only if needed for speed.
 
 ## Out of MVP scope (leave room, don't build)
