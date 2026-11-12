@@ -96,6 +96,13 @@ export function dynamicPrompt(input: {
     `CUSTOMER NAME: ${c?.name?.trim() ? c.name : "unknown (ask before the summary)"}`,
     `CUSTOMER TYPE: ${c && c.totalOrders > 0 ? `returning (${c.totalOrders} orders)` : "new"}`,
     `CART: ${s.cart.length ? JSON.stringify(s.cart.map(describeLine)) : "empty"}`,
+    ...(s.orderType === "delivery" && s.deliveryZone
+      ? [
+          s.deliveryZone.status === "out_of_range"
+            ? 'DELIVERY AREA: NOT SERVED — say "Maazrat, is area mein delivery nahi hoti" and offer pickup.'
+            : `DELIVERY AREA: ${s.deliveryZone.name ?? "not in our list (default fee)"} · fee ${money(s.deliveryZone.fee)}${s.deliveryZone.minimumOrder ? ` · minimum order ${money(s.deliveryZone.minimumOrder)}` : ""}`,
+        ]
+      : []),
     `ORDER TYPE: ${s.orderType ?? "not chosen"}`,
     ...(s.orderType === "delivery"
       ? [`ADDRESS: ${[s.address.text, s.address.area, s.address.landmark && `landmark: ${s.address.landmark}`].filter(Boolean).join(", ") || (s.address.latitude != null ? "location pin" : "not given")}`]
