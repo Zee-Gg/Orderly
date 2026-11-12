@@ -7,7 +7,8 @@ import {
   type PricingGroup,
   type PricingSize,
 } from "@/lib/menu/pricing";
-import type { AiLogRow, BotSession, BotStore, BranchInfo, CustomerInfo, RecentOrder, RestaurantInfo } from "../types";
+import type { FaqRecord, OfferRecord } from "../knowledge";
+import type { AiLogRow, BotSession, BotStore, CartDraft, BranchInfo, CustomerInfo, RecentOrder, RestaurantInfo } from "../types";
 
 /**
  * In-memory BotStore for unit tests: the demo menu with fixed ids, priced by
@@ -118,17 +119,31 @@ export type MemoryOrder = {
 };
 
 export function createMemoryBotStore(
-  opts: { branch?: Partial<BranchInfo>; restaurant?: Partial<RestaurantInfo>; emptyMenu?: boolean } = {},
+  opts: {
+    branch?: Partial<BranchInfo>;
+    restaurant?: Partial<RestaurantInfo>;
+    emptyMenu?: boolean;
+    menuMedia?: { type: "image" | "pdf"; url: string; fileName: string | null }[];
+    offers?: OfferRecord[];
+    faqs?: FaqRecord[];
+    bestsellers?: { itemName: string; quantity: number }[];
+    /** Item names that have a photo (→ https://photos.test/<item id>.jpg). */
+    photos?: string[];
+  } = {},
 ) {
   const { source, pricing, itemIds } = buildMenuData();
   const menu = opts.emptyMenu ? { branchId: BRANCH_ID, categories: [] } : buildBranchMenu(source);
   const restaurant: RestaurantInfo = {
     id: RESTAURANT_ID,
     name: "Cheezious",
+    slug: "cheezious",
     phone: "0300-1234567",
     timezone: "Asia/Karachi",
     botEnabled: true,
     highValueCodThreshold: 500000,
+    mentionOfferOnGreeting: true,
+    dineInAvailable: true,
+    paymentMethods: ["cod", "card_on_delivery"],
     ...opts.restaurant,
   };
   const branch: BranchInfo = {
@@ -141,12 +156,19 @@ export function createMemoryBotStore(
     phone: "0300-1234567",
     deliveryFee: 15000,
     minimumOrder: 50000,
+    latitude: 24.8138,
+    longitude: 67.0299,
+    mapsUrl: null,
+    weekHours: "Mon: 12:00 PM – 11:59 PM\nTue: 12:00 PM – 11:59 PM",
+    prepMinutes: 20,
+    deliveryMinutes: 30,
     ...opts.branch,
   };
   const customers = new Map<string, CustomerInfo>();
   const sessions = new Map<string, BotSession>();
   const orders: MemoryOrder[] = [];
   const logs: AiLogRow[] = [];
+  const drafts = new Map<string, CartDraft>();
   let seq = 0;
   let orderNumber = 1000;
 
@@ -190,6 +212,8 @@ export function createMemoryBotStore(
         status: "active",
         stage: "collecting_items",
         cart: [],
+        cartDraftId: null,
+        pendingCartCode: null,
         orderType: null,
         address: { text: null, area: null, landmark: null, latitude: null, longitude: null },
         paymentMethod: null,
@@ -260,6 +284,32 @@ export function createMemoryBotStore(
     async logTurn(row) {
       logs.push(row);
     },
+    async getMenuMedia() {
+      return opts.menuMedia ?? [];
+    },
+    async getOffers() {
+      return opts.offers ?? [];
+    },
+    async getFaqs() {
+      return opts.faqs ?? [];
+    },
+    async getBestsellerCounts() {
+      return (opts.bestsellers ?? []).map((b) => ({ itemId: itemIds[b.itemName], quantity: b.quantity }));
+    },
+    async getItemPhotoUrl(_rid, itemId) {
+      const name = Object.entries(itemIds).find(([, id]) => id === itemId)?.[0];
+      return name && opts.photos?.includes(name) ? `https://photos.test/${itemId}.jpg` : null;
+    },
+    async findCartDraft(rid, code) {
+      const d = rid === RESTAURANT_ID ? drafts.get(code.toUpperCase()) : undefined;
+      return d ? structuredClone(d) : null;
+    },
+    async claimCartDraft(rid, draftId, by) {
+      const d = [...drafts.values()].find((x) => x.id === draftId);
+      if (rid !== RESTAURANT_ID || !d || d.usedAt || Date.parse(d.expiresAt) <= by.now.getTime()) return false;
+      d.usedAt = by.now.toISOString();
+      return true;
+    },
   };
 
   function addCustomer(c: Partial<CustomerInfo> = {}): CustomerInfo {
@@ -276,5 +326,33 @@ export function createMemoryBotStore(
     return customer;
   }
 
-  return { store, restaurant, branch, menu, itemIds, customers, sessions, orders, logs, addCustomer };
+  /** A menu-page cart draft (by item name). Expires in 2h unless `expiresAt` is given. */
+  function addDraft(d: {
+    code: string;
+    lines: { item: string; variantId?: string | null; optionIds?: string[]; removals?: string[]; quantity: number; notes?: string }[];
+    orderType?: CartDraft["orderType"];
+    expiresAt?: string;
+    usedAt?: string | null;
+  }): CartDraft {
+    const draft: CartDraft = {
+      id: `draft-${drafts.size + 1}`,
+      code: d.code,
+      branchId: BRANCH_ID,
+      orderType: d.orderType ?? null,
+      lines: d.lines.map((l) => ({
+        itemId: itemIds[l.item],
+        variantId: l.variantId ?? null,
+        optionIds: l.optionIds ?? [],
+        removals: l.removals ?? [],
+        quantity: l.quantity,
+        notes: l.notes ?? "",
+      })),
+      expiresAt: d.expiresAt ?? new Date(Date.now() + 2 * 3600_000).toISOString(),
+      usedAt: d.usedAt ?? null,
+    };
+    drafts.set(d.code, draft);
+    return draft;
+  }
+
+  return { store, restaurant, branch, menu, itemIds, customers, sessions, orders, logs, addCustomer, drafts, addDraft };
 }
