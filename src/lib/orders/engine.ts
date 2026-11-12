@@ -11,6 +11,7 @@
  *
  * No Next.js imports on purpose: scripts and tests run the same engine.
  */
+import { z } from "zod";
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 import { can, type Role } from "@/lib/auth/permissions";
 import {
@@ -76,6 +77,10 @@ export type OrderErrorCode =
   | "ON_HOLD"
   | "REASON_REQUIRED"
   | "ALREADY_PAID"
+  | "NOT_ASSIGNABLE"
+  | "RIDER_NOT_FOUND"
+  | "ALREADY_SETTLED"
+  | "INVALID_AMOUNT"
   | "UNKNOWN";
 
 export type LineErrors = { index: number; errors: PricingError[] }[];
@@ -108,6 +113,10 @@ const MESSAGES: Partial<Record<OrderErrorCode, string>> = {
   REASON_REQUIRED: "Please choose a reason.",
   ALREADY_PAID: "This order is already marked as paid.",
   NOT_ALLOWED: "You don't have permission to do this.",
+  NOT_ASSIGNABLE: "Riders can only be given delivery orders that aren't finished.",
+  RIDER_NOT_FOUND: "This rider isn't active at this branch.",
+  ALREADY_SETTLED: "This cash was already settled.",
+  INVALID_AMOUNT: "Please enter a valid amount.",
 };
 
 /** Map an RPC error (message = stable token) to an engine error. */
@@ -125,6 +134,10 @@ function fromRpcError<T>(error: PostgrestError): EngineResult<T> {
     BRANCH_NOT_FOUND: "BRANCH_NOT_FOUND",
     ALREADY_PAID: "ALREADY_PAID",
     NO_ITEMS: "VALIDATION",
+    NOT_ASSIGNABLE: "NOT_ASSIGNABLE",
+    RIDER_NOT_FOUND: "RIDER_NOT_FOUND",
+    ALREADY_SETTLED: "ALREADY_SETTLED",
+    INVALID_AMOUNT: "INVALID_AMOUNT",
   };
   const code = map[token];
   if (code) return fail(code, MESSAGES[code] ?? "Please check the order.");
@@ -594,6 +607,85 @@ export async function recordPayment(
   await emitOrderEvent(
     { id: order.id, restaurantId: scope.restaurantId, branchId: order.branch_id, orderNumber: order.order_number },
     { kind: "payment_updated", actor, data: { method: input.method } },
+  );
+  return { ok: true, data: { version: (data as { version: number }).version } };
+}
+
+// ---------------------------------------------------------------------------
+// Riders (Phase 9)
+// ---------------------------------------------------------------------------
+
+const assignSchema = z.object({
+  orderId: z.uuid(),
+  riderId: z.uuid().nullable(),
+  expectedVersion: z.number().int().positive(),
+});
+
+/** Assign, reassign (another rider) or unassign (riderId null) a delivery order. */
+export async function assignRider(
+  deps: EngineDeps,
+  scope: Scope,
+  rawInput: z.input<typeof assignSchema>,
+  actor: Actor,
+): Promise<EngineResult<{ version: number; changed: boolean }>> {
+  const parsed = assignSchema.safeParse(rawInput);
+  if (!parsed.success) return fail("VALIDATION", "Please check the details.", { fieldErrors: zodFields(parsed.error) });
+  const input = parsed.data;
+  if (actor.type === "staff" && !can(actor.role, "riders.assign")) return fail("NOT_ALLOWED", MESSAGES.NOT_ALLOWED!);
+  const order = await loadOrder(deps, scope, input.orderId);
+  if (!order) return fail("ORDER_NOT_FOUND", MESSAGES.ORDER_NOT_FOUND!);
+  if (order.version !== input.expectedVersion) return fail("VERSION_CONFLICT", MESSAGES.VERSION_CONFLICT!);
+
+  const { data, error } = await deps.admin.rpc("assign_order_rider", {
+    p_restaurant_id: scope.restaurantId,
+    p_order_id: order.id,
+    p_rider_id: input.riderId as string,
+    p_expected_version: input.expectedVersion,
+    p_actor_user_id: actor.userId as string,
+  });
+  if (error) return fromRpcError(error);
+  const result = data as { version: number; changed: boolean };
+  if (result.changed) {
+    await emitOrderEvent(
+      { id: order.id, restaurantId: scope.restaurantId, branchId: order.branch_id, orderNumber: order.order_number },
+      { kind: input.riderId ? "rider_assigned" : "rider_unassigned", actor, data: { riderId: input.riderId } },
+    );
+  }
+  return { ok: true, data: result };
+}
+
+const codSchema = z.object({
+  orderId: z.uuid(),
+  amount: z.number().int("Use whole rupees").min(0).max(100_000_000),
+  note: z.string().trim().max(300).optional().default(""),
+});
+
+/** Cash the rider collected on a delivered order (a different amount needs a reason). */
+export async function recordCodCollection(
+  deps: EngineDeps,
+  scope: Scope,
+  rawInput: z.input<typeof codSchema>,
+  actor: Actor,
+): Promise<EngineResult<{ version: number }>> {
+  const parsed = codSchema.safeParse(rawInput);
+  if (!parsed.success) return fail("VALIDATION", "Please check the amount.", { fieldErrors: zodFields(parsed.error) });
+  const input = parsed.data;
+  const order = await loadOrder(deps, scope, input.orderId);
+  if (!order) return fail("ORDER_NOT_FOUND", MESSAGES.ORDER_NOT_FOUND!);
+  if (input.amount !== order.total && !input.note) {
+    return fail("REASON_REQUIRED", "Write why the amount is different.", { fieldErrors: { note: "Write the reason" } });
+  }
+  const { data, error } = await deps.admin.rpc("record_cod_collection", {
+    p_restaurant_id: scope.restaurantId,
+    p_order_id: order.id,
+    p_amount: input.amount,
+    p_note: input.note,
+    p_actor_user_id: actor.userId as string,
+  });
+  if (error) return fromRpcError(error);
+  await emitOrderEvent(
+    { id: order.id, restaurantId: scope.restaurantId, branchId: order.branch_id, orderNumber: order.order_number },
+    { kind: "cash_collected", actor, data: { amount: input.amount } },
   );
   return { ok: true, data: { version: (data as { version: number }).version } };
 }
