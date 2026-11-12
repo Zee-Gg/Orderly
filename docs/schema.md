@@ -235,17 +235,33 @@ State machine: pending_confirmation → awaiting_acceptance | cancelled; awaitin
 
 ---
 
-## Phase 5 — Riders & delivery zones
+## Phase 9 — Riders & delivery zones ✅
+Migrations `20261119100000_rider_event_types.sql`, `20261119100100_riders_zones.sql`, `20261119100200_riders_no_bot_settings.sql`.
+
+### `rider_profiles`
+id, restaurant_id, branch_id, user_id (auth user; membership role `rider`), name, phone (E.164, unique: one rider login per phone), is_online, is_active, timestamps. Login = hidden email `rider-<digits>@riders.internal` + 6-digit PIN (created by the server). Front of house reads; a rider reads only their own row and may update only `is_online`. Everything else via server actions (admin client after `riders.manage`).
 
 ### `delivery_zones`
-id, restaurant_id, branch_id, name ("DHA Phase 5"), fee_paisa, min_order_paisa, estimated_minutes, polygon jsonb (optional) / areas text[], is_active.
+id, restaurant_id, branch_id, name, aliases text[] (other spellings), delivery_fee, minimum_order (paisa), estimated_minutes, is_active (soft delete — orders reference zones), sort_order. Front of house reads; owner/manager write (column grants, no delete).
 
-### `rider_shifts` (optional)
-id, restaurant_id, branch_id, rider_id, started_at, ended_at, cash_collected_paisa.
+### Branch / restaurant settings
+- `branches.max_delivery_radius_km` (nullable) and `unlisted_area_policy` (`reject` | `default_fee`, default `default_fee` = branch `default_delivery_fee` + order flag "Area not in list — check").
+- `restaurants.share_rider_phone_with_customer` (default false) — rider phone in the "on the way" WhatsApp message.
 
-Riders themselves are `memberships` with role `rider`. Rider page `/rider` shows only orders where `rider_id = auth.uid()`.
+### `orders` (new columns)
+`rider_id` (now a real FK → rider_profiles), `assigned_at`, `delivery_zone_id`, `cod_collected_amount`, `cod_collected_at`, `delivery_failed_reason`, `settlement_id` (→ rider_settlements; "cash in hand" = collected and not settled). `bot_sessions.delivery_zone` (jsonb) keeps the matched zone for the summary.
 
----
+### `rider_settlements`
+id, restaurant_id, branch_id, rider_id, amount (received), expected_amount, order_ids uuid[], settled_by, notes, created_at. Written only by RPC `settle_rider_cash` (service role; a different amount needs a note; the same order can't be settled twice). Owner/manager read.
+
+### `rider_login_attempts` (server only)
+phone, failed_count, locked_until. RPC `rider_login_failed(phone)`: 5 failures → locked 15 minutes.
+
+### Rider RLS
+`private.rider_can_see(...)`: a rider reads an order (with customer name/phone/address/landmark/coordinates) only when it's assigned to them AND active (`ready`, `out_for_delivery`) or delivered/failed today (restaurant time zone); plus its `order_items`/modifiers. No customers, payments, zones, settlements, other riders, audit logs or bot settings (menu_media/offers/FAQs now exclude riders).
+
+### RPCs (service role)
+`assign_order_rider` (delivery orders accepted→out_for_delivery; same-branch active rider; events `rider_assigned` / `rider_unassigned`), `record_cod_collection` (delivered orders; different amount needs a note; event `cash_collected`), `settle_rider_cash`, `rider_login_failed`. `transition_order_status` now lets a rider do ONLY ready→out_for_delivery→delivered|failed on their own orders, and saves `delivery_failed_reason`.
 
 ## Phase 6 — WhatsApp
 
