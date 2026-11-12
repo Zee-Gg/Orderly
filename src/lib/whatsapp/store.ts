@@ -67,6 +67,8 @@ export type OrderMessageContext = {
   cancelReason: string | null;
   /** restaurants.whatsapp_status_messages (status → on/off). */
   statusMessages: Record<string, unknown>;
+  /** Assigned rider (Phase 9); phone only when the restaurant shares it with customers. */
+  rider?: { name: string; phone: string | null } | null;
 };
 
 export interface WhatsAppStore {
@@ -218,17 +220,20 @@ export function createSupabaseStore(db: Db): WhatsAppStore {
     async getOrderMessageContext(restaurantId, orderId) {
       const { data: order, error } = await db
         .from("orders")
-        .select("order_number, order_type, customer_phone, customer_id, expected_ready_at, cancel_reason, branch_id")
+        .select("order_number, order_type, customer_phone, customer_id, expected_ready_at, cancel_reason, branch_id, rider_id")
         .eq("id", orderId)
         .eq("restaurant_id", restaurantId)
         .maybeSingle();
       if (error) throw new Error(`order lookup: ${error.message}`);
       if (!order) return null;
-      const [restaurant, branch, customer] = await Promise.all([
-        db.from("restaurants").select("whatsapp_status_messages").eq("id", restaurantId).maybeSingle(),
+      const [restaurant, branch, customer, rider] = await Promise.all([
+        db.from("restaurants").select("whatsapp_status_messages, share_rider_phone_with_customer").eq("id", restaurantId).maybeSingle(),
         db.from("branches").select("default_prep_minutes").eq("id", order.branch_id).eq("restaurant_id", restaurantId).maybeSingle(),
         order.customer_id
           ? db.from("customers").select("whatsapp_id").eq("id", order.customer_id).eq("restaurant_id", restaurantId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        order.rider_id
+          ? db.from("rider_profiles").select("name, phone").eq("id", order.rider_id).eq("restaurant_id", restaurantId).maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
       const settings = restaurant.data?.whatsapp_status_messages;
@@ -241,6 +246,9 @@ export function createSupabaseStore(db: Db): WhatsAppStore {
         defaultPrepMinutes: branch.data?.default_prep_minutes ?? null,
         cancelReason: order.cancel_reason,
         statusMessages: settings && typeof settings === "object" && !Array.isArray(settings) ? settings : {},
+        rider: rider.data
+          ? { name: rider.data.name, phone: restaurant.data?.share_rider_phone_with_customer ? rider.data.phone : null }
+          : null,
       };
     },
 
