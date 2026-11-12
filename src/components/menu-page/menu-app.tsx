@@ -137,6 +137,8 @@ export function MenuApp({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState<Sent | null>(null);
+  const [areaId, setAreaId] = useState<string>("");
+  const chosenArea = data.zones.find((z) => z.id === areaId) ?? null;
   useBackToClose(view === "cart", () => setView("menu"));
   useBackToClose(!!sheet, () => setSheet(null));
 
@@ -159,15 +161,11 @@ export function MenuApp({
   }));
   const okLines = priced.flatMap((p) => (p.result?.ok ? [p.result.line] : []));
   const count = cart.lines.reduce((n, l) => n + l.quantity, 0);
-  const totals = computeOrderTotals({
-    lines: okLines,
-    deliveryFee: cart.orderType === "delivery" ? branch.deliveryFee : 0,
-  });
+  const areaFee = chosenArea ? chosenArea.fee : branch.deliveryFee;
+  const areaMinimum = chosenArea ? chosenArea.minimumOrder : branch.minimumOrder;
+  const totals = computeOrderTotals({ lines: okLines, deliveryFee: cart.orderType === "delivery" ? areaFee : 0 });
   const subtotal = totals.ok ? totals.totals.subtotal : 0;
-  const belowMinimum =
-    cart.orderType === "delivery" &&
-    branch.minimumOrder > 0 &&
-    subtotal < branch.minimumOrder;
+  const belowMinimum = cart.orderType === "delivery" && areaMinimum > 0 && subtotal < areaMinimum;
   const badLines = priced.filter((p) => !p.result?.ok);
   const inCart = (id: string) =>
     cart.lines
@@ -507,6 +505,9 @@ export function MenuApp({
           priced={priced}
           totals={totals.ok ? totals.totals : null}
           belowMinimum={belowMinimum}
+          minimum={areaMinimum}
+          areaId={areaId}
+          onArea={setAreaId}
           problems={problems}
           error={error}
           canSend={canSend}
@@ -751,6 +752,9 @@ function CartView(props: {
   priced: Priced[];
   totals: { subtotal: number; deliveryFee: number; total: number } | null;
   belowMinimum: boolean;
+  minimum: number;
+  areaId: string;
+  onArea: (id: string) => void;
   problems: Problem[];
   error: string | null;
   canSend: boolean;
@@ -963,19 +967,37 @@ function CartView(props: {
               <span className="text-muted">{tx.subtotal}</span>
               <span dir="ltr">{rs(totals.subtotal)}</span>
             </p>
+            {delivery && data.zones.length ? (
+              <label className="mt-2 flex flex-col gap-1 text-sm" data-testid="area-picker">
+                <span className="text-muted">{tx.yourArea}</span>
+                <select
+                  value={props.areaId}
+                  onChange={(e) => props.onArea(e.target.value)}
+                  className="min-h-touch rounded-control border border-line-strong bg-surface px-2 text-base"
+                >
+                  <option value="">{tx.otherArea}</option>
+                  {data.zones.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.name} · {rs(z.fee)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
             {delivery ? (
               <p className="mt-1 flex justify-between">
                 <span className="text-muted">{tx.deliveryFee}</span>
-                <span dir="ltr">{rs(totals.deliveryFee)}</span>
+                <span dir="ltr">{data.zones.length && !props.areaId ? `~${rs(totals.deliveryFee)}` : rs(totals.deliveryFee)}</span>
               </p>
             ) : null}
+            {delivery && data.zones.length ? <p className="text-xs text-muted">{tx.feeDependsOnArea}. {tx.feeConfirmed}</p> : null}
             <p className="mt-2 flex justify-between border-t border-dashed border-line-strong pt-2 text-xl font-bold">
               <span>{tx.total}</span>
               <span dir="ltr">{rs(totals.total)}</span>
             </p>
             {props.belowMinimum ? (
               <p className="mt-2 rounded-control bg-status-awaiting-bg p-2 text-sm font-semibold text-status-awaiting-fg">
-                {tx.minimum(rs(branch.minimumOrder))}
+                {tx.minimum(rs(props.minimum))}
               </p>
             ) : null}
             <p className="mt-2 text-sm text-muted">{tx.finalOnWhatsApp}</p>
