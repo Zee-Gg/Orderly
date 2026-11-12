@@ -10,6 +10,7 @@ import { createAiTools, runTool, type BotContext, type ToolCallLog } from "./too
 import { findCodesInText, mentionsOrderCode } from "@/lib/menu-page/code";
 import { menuPageUrl } from "@/lib/menu-page/links";
 import { detectOrderCode, draftUsable, loadDraftIntoCart } from "./cart-draft";
+import { applyDeliveryZone } from "./delivery";
 import { currentOffers, priceLabel } from "./tools/knowledge-tools";
 import type { BotMedia, BotPaymentMethod, BotSession, BotStore, CartDraft, CustomerInfo } from "./types";
 
@@ -386,6 +387,7 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
     };
     s.summaryHash = null;
     if (s.status === "awaiting_confirmation") s.status = "active";
+    await applyDeliveryZone(ctx); // radius / zone from the pin (Phase 9)
   }
 
   // A voice note nobody could understand: no AI. It counts as "not understood"
