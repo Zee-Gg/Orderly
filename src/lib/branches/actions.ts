@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { revalidatePublicMenu } from "@/lib/menu/public-cache";
 import { z } from "zod";
 import { diff, writeAuditLog } from "@/lib/audit";
 import { failure, zodFailure, type ActionResult } from "@/lib/action-result";
@@ -28,6 +29,7 @@ export async function setBranchOpen(branchId: string, isOpen: boolean): Promise<
     if (!data.length) return { ok: false, error: "You can't change this branch." };
 
     revalidatePath("/", "layout");
+    revalidatePublicMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't change open/closed. Please try again.");
@@ -75,6 +77,7 @@ export async function createBranch(input: BranchInput): Promise<ActionResult<{ i
       newData: row,
     });
     revalidatePath("/", "layout");
+    revalidatePublicMenu(ctx.restaurant.id);
     return { ok: true, data: { id: data.id } };
   } catch (err) {
     return failure(err, "Couldn't add the branch. Please try again.");
@@ -123,6 +126,7 @@ export async function updateBranch(branchId: string, input: BranchInput): Promis
       });
     }
     revalidatePath("/", "layout");
+    revalidatePublicMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't save the branch. Please try again.");
