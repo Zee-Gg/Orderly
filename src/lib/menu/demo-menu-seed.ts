@@ -1,6 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@/types/database";
-import { DEMO_GROUPS, DEMO_MENU, type DemoGroupKey } from "./demo-menu";
+import { DEMO_BRANCH_LOCATION, DEMO_FAQS, DEMO_GROUPS, DEMO_MENU, DEMO_OFFERS, type DemoGroupKey } from "./demo-menu";
 
 /**
  * Insert the demo menu into a restaurant (service-role client; scripts and
@@ -122,4 +122,55 @@ export async function seedDemoMenu(
     }
   }
   return itemIds;
+}
+
+/**
+ * Phase 7C demo knowledge: the two offers, five FAQs, and the first branch's
+ * address + pin (only filled when the branch has none). No images.
+ */
+export async function seedDemoKnowledge(
+  db: SupabaseClient<Database>,
+  restaurantId: string,
+  firstBranchId: string,
+  itemIds: Record<string, string>,
+): Promise<void> {
+  must(
+    await db
+      .from("offers")
+      .insert(
+        DEMO_OFFERS.map((o, i) => ({
+          restaurant_id: restaurantId,
+          title: o.title,
+          title_ur: o.titleUr ?? null,
+          description: o.description,
+          menu_item_id: itemIds[o.itemName],
+          days_of_week: o.daysOfWeek,
+          start_time: o.startTime,
+          end_time: o.endTime,
+          starts_at: "2026-01-01T00:00:00Z",
+          sort_order: i,
+        })),
+      )
+      .select("id"),
+    "Offers",
+  );
+  must(
+    await db
+      .from("restaurant_faqs")
+      .insert(DEMO_FAQS.map((f, i) => ({ restaurant_id: restaurantId, question: f.question, answer: f.answer, keywords: f.keywords, sort_order: i })))
+      .select("id"),
+    "FAQs",
+  );
+  const branch = must(await db.from("branches").select("address, latitude").eq("id", firstBranchId).single(), "Branch");
+  must(
+    await db
+      .from("branches")
+      .update({
+        ...(branch.address ? {} : { address: DEMO_BRANCH_LOCATION.address, area: DEMO_BRANCH_LOCATION.area }),
+        ...(branch.latitude != null ? {} : { latitude: DEMO_BRANCH_LOCATION.latitude, longitude: DEMO_BRANCH_LOCATION.longitude }),
+      })
+      .eq("id", firstBranchId)
+      .select("id"),
+    "Branch location",
+  );
 }
