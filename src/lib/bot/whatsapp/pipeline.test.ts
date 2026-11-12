@@ -6,6 +6,7 @@ import type { BotButton } from "../agent";
 import type { BotChannelStore, ChannelConversation, PendingMessage } from "./channel";
 import { combineMessages, createBotPipeline } from "./pipeline";
 import type { VoiceOutcome } from "../voice/handle";
+import type { BotMedia } from "../types";
 
 type Step = { tools?: { name: string; input: unknown }[]; text?: string };
 
@@ -39,8 +40,10 @@ function scriptedTurns(turns: Step[][]) {
   });
 }
 
-function setup(opts: { budget?: { budget: number | null; spent: number }; voice?: VoiceOutcome } = {}) {
-  const m = createMemoryBotStore();
+function setup(
+  opts: { budget?: { budget: number | null; spent: number }; voice?: VoiceOutcome; store?: Parameters<typeof createMemoryBotStore>[0] } = {},
+) {
+  const m = createMemoryBotStore(opts.store);
   const customer = m.addCustomer({ name: "Ali", phone: "+923001234567" });
   const conversation: ChannelConversation & { lockUntil: number } = {
     id: "conv-1",
@@ -98,6 +101,10 @@ function setup(opts: { budget?: { budget: number | null; spent: number }; voice?
     }),
     sendInteractiveButtons: vi.fn(async (_r: string, _to: string, text: string, buttons: BotButton[]) => {
       sent.push({ text, buttons: buttons.map((b) => b.id) });
+      return { ok: true };
+    }),
+    sendMedia: vi.fn(async (_r: string, _to: string, media: BotMedia) => {
+      sent.push({ text: `[${media.kind}] ${media.kind === "text" ? media.text : media.kind === "location" ? media.name : (media.caption ?? "")}`, buttons: null });
       return { ok: true };
     }),
   };
@@ -201,6 +208,39 @@ describe("bot pipeline", () => {
     // Our "[Customer shared a location pin]" note must not switch the customer's language.
     expect(session.language).toBe("roman_urdu");
     expect(s.m.logs[0].inputText).toContain("location pin");
+  });
+
+  it("send_menu: the menu images go out BEFORE the reply, the first one with the price caption", async () => {
+    const s = setup({
+      store: {
+        menuMedia: [
+          { type: "image", url: "https://cdn.test/menu-1.jpg", fileName: "menu-1.jpg" },
+          { type: "image", url: "https://cdn.test/menu-2.jpg", fileName: "menu-2.jpg" },
+        ],
+      },
+    });
+    const p = s.make(scriptedTurns([[{ tools: [{ name: "send_menu", input: {} }] }, { text: "Kya order karna chahenge?" }]]));
+    await p.handleInbound(s.trigger(s.inbound("menu bhejo")));
+    expect(s.sender.sendMedia).toHaveBeenCalledTimes(3); // 2 images + the menu page link
+    expect(s.sender.sendMedia.mock.calls[0][2]).toEqual({ kind: "image", url: "https://cdn.test/menu-1.jpg", caption: "Final prices aap ke order summary mein confirm honge" });
+    expect(s.sender.sendMedia.mock.calls[1][2]).toMatchObject({ kind: "image", url: "https://cdn.test/menu-2.jpg" });
+    expect(s.sent.at(-1)).toEqual({ text: "Kya order karna chahenge?", buttons: null });
+  });
+
+  it("send_item_photo: the photo caption is name — price from the pricing engine", async () => {
+    const s = setup({ store: { photos: ["Zinger Burger"] } });
+    const p = s.make(scriptedTurns([[{ tools: [{ name: "send_item_photo", input: { item_id: s.ref("Zinger Burger") } }] }, { text: "Order karein?" }]]));
+    await p.handleInbound(s.trigger(s.inbound("zinger ki picture bhejo")));
+    const media = s.sender.sendMedia.mock.calls[0][2];
+    expect(media).toMatchObject({ kind: "image", url: `https://photos.test/${s.m.itemIds["Zinger Burger"]}.jpg` });
+    expect((media as { caption: string }).caption).toMatch(/^Zinger Burger — Rs \d/);
+  });
+
+  it("send_location: a location pin with the branch name and address", async () => {
+    const s = setup();
+    const p = s.make(scriptedTurns([[{ tools: [{ name: "send_location", input: {} }] }, { text: "Yeh hamari location hai." }]]));
+    await p.handleInbound(s.trigger(s.inbound("location bhejo")));
+    expect(s.sender.sendMedia.mock.calls[0][2]).toMatchObject({ kind: "location", latitude: expect.any(Number), longitude: expect.any(Number) });
   });
 
   it("photos and documents still get a polite 'please type' reply, no AI", async () => {
