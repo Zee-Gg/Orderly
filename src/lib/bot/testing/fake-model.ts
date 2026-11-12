@@ -14,6 +14,10 @@ import { MockLanguageModelV4 } from "ai/test";
  *   "bas" / "that's all" / "summary"     → show_order_summary (after the other tools)
  *   "confirm" / "haan"                   → confirm_order
  *   "agent" / "insaan" / "manager"       → handoff_to_staff
+ *   "menu"                               → send_menu
+ *   "zinger ki photo"                    → send_item_photo
+ *   "location" / "kahan ho"              → send_location
+ *   "deal" / "offer" (no item named)     → get_offers
  */
 type Part = { type: string; text?: string; toolName?: string; output?: { value?: unknown } };
 type Msg = { role: string; content: string | Part[] };
@@ -64,11 +68,22 @@ function itemCalls(text: string, menu: MenuLine[]): Call[] {
   return calls;
 }
 
-function decide(text: string, menu: MenuLine[]): { calls: Call[]; summary: boolean } {
+function decide(raw: string, menu: MenuLine[]): { calls: Call[]; summary: boolean } {
+  // Our own [notes] (a shared pin, "cart loaded from the menu page", "[voice note]") are not the customer's words.
+  const text = raw.replace(/\[[^\]]*\]/g, " ");
   const t = text.toLowerCase();
   if (/\b(agent|insaan|manager|human)\b/.test(t)) return { calls: [{ name: "handoff_to_staff", input: { reason: "Customer asked for a person" } }], summary: false };
   if (/^\s*(confirm|haan|yes)\b/.test(t)) return { calls: [{ name: "confirm_order", input: {} }], summary: false };
+  // Knowledge (Phase 7C): menu, photos, location, offers. Our own [notes] (e.g. a shared pin) don't count.
+  const said = t.replace(/\[[^\]]*\]/g, " ");
+  if (/\bmenu\b/.test(said)) return { calls: [{ name: "send_menu", input: {} }], summary: false };
+  if (/\b(location|kahan ho|address bhejo)\b/.test(said)) return { calls: [{ name: "send_location", input: {} }], summary: false };
+  if (/\b(photo|picture|pic|tasveer)\b/.test(said)) {
+    const item = itemCalls(text, menu)[0];
+    if (item) return { calls: [{ name: "send_item_photo", input: { item_id: item.input.item_id } }], summary: false };
+  }
   const calls = itemCalls(text, menu);
+  if (!calls.length && /\b(deals?|offers?)\b/.test(t)) return { calls: [{ name: "get_offers", input: {} }], summary: false };
   if (/\bpickup\b/.test(t)) calls.push({ name: "set_order_type", input: { order_type: "pickup" } });
   const address = /\b(house|flat|plot|street)\b/.test(t);
   if (address) {
@@ -114,6 +129,8 @@ export function createFakeModel() {
       });
 
       const plan = decide(userText, menu);
+      // A cart loaded from the menu page: ask what's still missing (the summary tool says).
+      if (toolNames.length === 0 && userText.includes("ALREADY loaded their cart")) return call([{ name: "show_order_summary", input: {} }]);
       if (toolNames.length === 0) {
         if (plan.calls.length) return call(plan.calls);
         if (plan.summary) return call([{ name: "show_order_summary", input: {} }]);
@@ -123,7 +140,13 @@ export function createFakeModel() {
       if (plan.summary && !toolNames.includes("show_order_summary") && !toolNames.includes("handoff_to_staff")) {
         return call([{ name: "show_order_summary", input: {} }]);
       }
-      const last = results.at(-1)?.output?.value as { ok?: boolean; message?: string; still_needed?: string[]; missing?: string[] } | undefined;
+      const last = results.at(-1)?.output?.value as
+        | { ok?: boolean; message?: string; still_needed?: string[]; missing?: string[]; sent?: string; offers?: { title: string; price: string }[] }
+        | undefined;
+      if (last?.ok && last.sent) return reply("Kya order karna chahenge? 🙂");
+      if (last?.ok && last.offers) {
+        return reply(last.offers.length ? last.offers.map((o) => `${o.title}: ${o.price}`).join("\n") : "Abhi koi offer nahi hai.");
+      }
       if (last && last.ok === false) {
         const missing = last.missing?.[0];
         return reply(missing && QUESTION[missing] ? QUESTION[missing] : `Maazrat: ${last.message ?? "masla aa gaya"}`);
