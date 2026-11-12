@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { revalidatePublicMenu } from "@/lib/menu/public-cache";
 import { z } from "zod";
 import { failure, zodFailure, type ActionResult } from "@/lib/action-result";
 import { writeAuditLog } from "@/lib/audit";
@@ -51,9 +52,10 @@ async function checkWaba(
   return { ok: true };
 }
 
-function revalidate() {
+function revalidate(restaurantId: string) {
   revalidatePath("/admin/whatsapp");
   revalidatePath("/settings/whatsapp");
+  revalidatePublicMenu(restaurantId); // the menu page shows the WhatsApp number
 }
 
 export async function connectWhatsAppAction(
@@ -131,7 +133,7 @@ export async function connectWhatsAppAction(
         token_changed: Boolean(v.accessToken),
       },
     });
-    revalidate();
+    revalidate(v.restaurantId);
     return {
       ok: true,
       message: "WhatsApp connected.",
@@ -226,7 +228,7 @@ export async function disconnectWhatsAppAction(restaurantId: string): Promise<Ac
       entityId: removed.phone_number_id,
       oldData: removed,
     });
-    revalidate();
+    revalidate(id.data);
     return { ok: true, message: "WhatsApp disconnected." };
   } catch (err) {
     return failure(err, "Could not disconnect.");
