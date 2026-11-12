@@ -64,6 +64,8 @@ export const PERMISSIONS = {
   "inbox.access": FRONT_OF_HOUSE,
   /** Turn the AI bot back on for a chat it handed to staff. */
   "inbox.bot_toggle": FRONT_OF_HOUSE,
+  /** What the bot knows: menu images, offers, FAQs, location (/settings/bot). */
+  "bot.manage": MANAGEMENT,
   "reports.view": MANAGEMENT,
   "settings.view": MANAGEMENT,
   "settings.edit": ["owner"],
