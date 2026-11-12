@@ -1,3 +1,4 @@
+import { formatPhone } from "@/lib/orders/phone";
 import type { OrderStatus } from "@/lib/orders/constants";
 
 /**
@@ -38,6 +39,8 @@ export type StatusMessageInput = {
   /** Minutes until ready (accepted message). */
   minutes?: number | null;
   cancelReason?: string | null;
+  /** Out for delivery: who is bringing it (phone only if the restaurant shares it). */
+  rider?: { name: string; phone: string | null } | null;
 };
 
 /** The text for a status, or null when this status has no customer message. */
@@ -55,8 +58,11 @@ export function orderStatusMessage(input: StatusMessageInput): string | null {
       // Only pickup customers need to come; delivery orders get "on the way" next.
       if (input.orderType !== "pickup") return null;
       return `🛍️ Order ${n} ready hai, aa kar le jayein.\nYour order is ready for pickup.`;
-    case "out_for_delivery":
-      return `🛵 Order ${n} raaste mein hai.\nYour order is on the way.`;
+    case "out_for_delivery": {
+      if (!input.rider) return `🛵 Order ${n} raaste mein hai.\nYour order is on the way.`;
+      const phone = input.rider.phone ? ` (${formatPhone(input.rider.phone)})` : "";
+      return `🛵 Order ${n} raaste mein hai. Rider: ${input.rider.name}${phone}.\nYour order is on the way with ${input.rider.name}.`;
+    }
     case "delivered":
       return `🎉 Order ${n} deliver ho gaya. Shukriya!\nYour order was delivered. Thank you!`;
     case "cancelled":
