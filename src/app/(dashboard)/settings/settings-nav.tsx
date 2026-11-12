@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Bot, MapPin, MessageCircle, Printer, Store, Users } from "lucide-react";
+import { Bike, Bot, MapPin, MessageCircle, Printer, Store, Users } from "lucide-react";
 import type { Action } from "@/lib/auth/permissions";
 import { usePermission } from "@/lib/auth/permissions-context";
 import { cn } from "@/lib/utils";
@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 const LINKS: { href: string; label: string; icon: typeof Store; permission: Action }[] = [
   { href: "/settings/restaurant", label: "Restaurant", icon: Store, permission: "settings.edit" },
   { href: "/settings/branches", label: "Branches", icon: MapPin, permission: "branches.manage" },
+  { href: "/settings/delivery", label: "Delivery areas", icon: Bike, permission: "delivery.manage" },
   { href: "/settings/staff", label: "Staff", icon: Users, permission: "staff.view" },
   { href: "/settings/printing", label: "Printing", icon: Printer, permission: "settings.view" },
   { href: "/settings/whatsapp", label: "WhatsApp", icon: MessageCircle, permission: "settings.view" },
