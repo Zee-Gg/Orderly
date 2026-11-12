@@ -148,6 +148,28 @@ export const DEMO_MENU: { name: string; nameUr?: string; items: DemoItem[] }[] =
     ],
   },
   {
+    name: "Deals",
+    nameUr: "ڈیلز",
+    items: [
+      {
+        name: "Friday Deal: 2 Zinger + 1.5L Coke",
+        description: "2 Zinger Burgers and a chilled 1.5 litre Coke",
+        price: 1199,
+        aliases: ["friday deal", "jumma deal", "jummah deal", "2 zinger coke deal"],
+        tags: ["deal"],
+        prep: 12,
+      },
+      {
+        name: "Student Deal",
+        description: "Zinger Burger, regular fries and a soft drink (weekdays 12–4 pm)",
+        price: 599,
+        aliases: ["student deal", "students deal", "student offer"],
+        tags: ["deal"],
+        prep: 12,
+      },
+    ],
+  },
+  {
     name: "Drinks",
     nameUr: "مشروبات",
     items: [
@@ -189,4 +211,58 @@ export const DEMO_GROUPS: Record<DemoGroupKey, { name: string; nameUr?: string; 
     max: 1,
     options: [["Mild", 0], ["Medium", 0, true], ["Spicy", 0]],
   },
+};
+
+/** Offers on the demo menu (Phase 7C). Days are ISO (1 = Monday); times are the restaurant's local time. */
+export const DEMO_OFFERS: {
+  title: string;
+  titleUr?: string;
+  description: string;
+  itemName: string;
+  daysOfWeek: number[] | null;
+  startTime: string | null;
+  endTime: string | null;
+}[] = [
+  {
+    title: "Friday Deal",
+    titleUr: "جمعہ ڈیل",
+    description: "Every Friday: 2 Zinger Burgers + 1.5L Coke",
+    itemName: "Friday Deal: 2 Zinger + 1.5L Coke",
+    daysOfWeek: [5],
+    startTime: null,
+    endTime: null,
+  },
+  {
+    title: "Student Deal",
+    description: "Weekdays 12 pm to 4 pm: Zinger, fries and a drink",
+    itemName: "Student Deal",
+    daysOfWeek: [1, 2, 3, 4, 5],
+    startTime: "12:00",
+    endTime: "16:00",
+  },
+];
+
+/** Answers the demo bot knows (Phase 7C). */
+export const DEMO_FAQS: { question: string; answer: string; keywords: string[] }[] = [
+  { question: "Parking available?", answer: "Yes, free parking is available in front of the restaurant.", keywords: ["parking", "car", "gari", "park"] },
+  { question: "Family hall?", answer: "Yes, we have a separate family hall upstairs.", keywords: ["family", "hall", "families", "ladies"] },
+  {
+    question: "Birthday / party arrangements?",
+    answer: "Yes, we arrange birthdays for up to 40 guests. Please book one day in advance.",
+    keywords: ["birthday", "party", "event", "booking", "celebration"],
+  },
+  { question: "Is the food halal?", answer: "Yes, all our meat is 100% halal.", keywords: ["halal", "halaal", "haram"] },
+  {
+    question: "Which areas do you deliver to?",
+    answer: "We deliver to Clifton, DHA, Defence View and Saddar.",
+    keywords: ["areas", "area", "deliver", "delivery area", "dha", "kahan tak"],
+  },
+];
+
+/** First branch location for the demo (Clifton, Karachi). */
+export const DEMO_BRANCH_LOCATION = {
+  address: "Plot 12-C, Block 5, Clifton",
+  area: "Clifton",
+  latitude: 24.8138,
+  longitude: 67.0299,
 };
