@@ -97,7 +97,9 @@ export function LiveStats() {
   return (
     <div className="grid grid-cols-3 gap-2 lg:flex lg:gap-3">
       <div className={`${tile} bg-subtle`}>
-        <p className="truncate text-xs font-medium text-muted lg:text-sm">Orders today</p>
+        <p className="truncate text-xs font-medium text-muted lg:text-sm" title="Delivered or completed orders today (same as Reports)">
+          Done today
+        </p>
         <p className="truncate text-xl font-bold lg:text-2xl">{stats.ordersToday}</p>
       </div>
       <div className={`${tile} bg-subtle`}>
