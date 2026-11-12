@@ -39,7 +39,12 @@ export type BoardOrder = {
   readyAt: string | null;
   dispatchedAt: string | null;
   version: number;
+  /** Phase 9: assigned rider. */
+  riderId: string | null;
+  riderName: string | null;
 };
+
+export type RiderOption = { id: string; name: string; branchId: string; isOnline: boolean; activeCount: number };
 
 export type BranchOrderSettings = Record<string, { name: string; acceptAlertMinutes: number; lateOrderMinutes: number }>;
 
@@ -53,11 +58,13 @@ export type LiveSnapshot = {
   stats: LiveStats;
   needsStaff: NeedsStaffChat[];
   settings: BranchOrderSettings;
+  /** Active riders of the branches in view (assign dropdown). */
+  riders: RiderOption[];
   fetchedAt: string;
 };
 
 const BOARD_SELECT =
-  "id, order_number, branch_id, status, order_type, source, customer_name, area, table_number, total, payment_method, payment_status, is_on_hold, hold_reason, risk_flag, created_by, created_at, accepted_at, ready_at, dispatched_at, version, items:order_items(item_name, size_name, quantity, is_cancelled), customer:customers(cancelled_count, refused_count)";
+  "id, order_number, branch_id, status, order_type, source, customer_name, area, table_number, total, payment_method, payment_status, is_on_hold, hold_reason, risk_flag, created_by, created_at, accepted_at, ready_at, dispatched_at, version, rider_id, rider:rider_profiles(name), items:order_items(item_name, size_name, quantity, is_cancelled), customer:customers(cancelled_count, refused_count)";
 
 type BoardRow = {
   id: string;
@@ -81,6 +88,8 @@ type BoardRow = {
   ready_at: string | null;
   dispatched_at: string | null;
   version: number;
+  rider_id: string | null;
+  rider: { name: string } | null;
   items: { item_name: string; size_name: string | null; quantity: number; is_cancelled: boolean }[];
   customer: { cancelled_count: number; refused_count: number } | null;
 };
@@ -114,6 +123,8 @@ function toBoardOrder(r: BoardRow): BoardOrder {
     readyAt: r.ready_at,
     dispatchedAt: r.dispatched_at,
     version: r.version,
+    riderId: r.rider_id,
+    riderName: r.rider?.name ?? null,
   };
 }
 
@@ -128,7 +139,7 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
   const tz = ctx.restaurant.timezone || DEFAULT_TIMEZONE;
   const { start, end } = todayRange(tz);
 
-  const [board, today, branches, chats] = await Promise.all([
+  const [board, today, branches, chats, riders] = await Promise.all([
     supabase
       .from("orders")
       .select(BOARD_SELECT)
@@ -159,6 +170,12 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
       .not("handed_off_at", "is", null)
       .order("handed_off_at", { ascending: false })
       .limit(20),
+    supabase
+      .from("rider_profiles")
+      .select("id, name, branch_id, is_online")
+      .eq("restaurant_id", ctx.restaurant.id)
+      .in("branch_id", branchIds)
+      .eq("is_active", true),
   ]);
   if (board.error) throw board.error;
   if (today.error) throw today.error;
@@ -185,6 +202,13 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
         { name: b.name, acceptAlertMinutes: b.accept_alert_minutes, lateOrderMinutes: b.late_order_minutes },
       ]),
     ),
+    riders: (riders.data ?? []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      branchId: r.branch_id,
+      isOnline: r.is_online,
+      activeCount: orders.filter((o) => o.riderId === r.id && ["accepted", "preparing", "ready", "out_for_delivery"].includes(o.status)).length,
+    })),
     fetchedAt: new Date().toISOString(),
   };
 }
