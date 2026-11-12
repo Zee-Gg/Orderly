@@ -41,6 +41,9 @@ type Case = {
     photos?: string[];
     /** Phase 8: a cart sent from the menu page. Turns use {CODE} / {code} for its code. */
     draft?: { lines: { item: string; size?: string; quantity: number }[]; order_type?: "delivery" | "pickup"; expired?: boolean };
+    /** Phase 9: delivery zones of the branch (rupees) and the unlisted-area rule. */
+    zones?: { name: string; aliases?: string[]; fee: number; minimum?: number; eta?: number }[];
+    unlisted_policy?: "reject" | "default_fee";
   };
   turns: Turn[];
   expect: {
@@ -91,7 +94,7 @@ const DEFAULT_AT = "2026-11-08T13:00";
 /** Categories added in Phase 7C (reported separately). */
 const KNOWLEDGE_CATEGORIES = new Set(["menu_media", "item_photo", "bestsellers", "offers", "faq", "location", "greeting_offer"]);
 /** Categories added in Phase 8 (reported separately). */
-const MENU_PAGE_CATEGORIES = new Set(["menu_page"]);
+const MENU_PAGE_CATEGORIES = new Set(["menu_page", "delivery_zones"]);
 
 /** Save a menu-page cart draft for this case; returns its code. */
 async function makeDraft(t: BotTestRestaurant, d: NonNullable<NonNullable<Case["setup"]>["draft"]>, now: Date): Promise<string> {
@@ -130,6 +133,22 @@ function storeFor(c: Case): BotStore {
   if (!setup) return store;
   return {
     ...store,
+    async getDeliveryZones(restaurantId, branchId) {
+      if (!setup.zones) return store.getDeliveryZones(restaurantId, branchId);
+      return setup.zones.map((z, i) => ({
+        id: `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`,
+        name: z.name,
+        aliases: z.aliases ?? [],
+        deliveryFee: z.fee * 100,
+        minimumOrder: (z.minimum ?? 0) * 100,
+        estimatedMinutes: z.eta ?? null,
+        isActive: true,
+      }));
+    },
+    async getBranch(restaurantId, branchId, now) {
+      const b = await store.getBranch(restaurantId, branchId, now);
+      return b && setup.unlisted_policy ? { ...b, unlistedAreaPolicy: setup.unlisted_policy } : b;
+    },
     async getMenuMedia() {
       return [
         ...Array.from({ length: setup.menu_images ?? 0 }, (_, i) => ({ type: "image" as const, url: `https://cdn.example.com/menu-${i + 1}.jpg`, fileName: `menu-${i + 1}.jpg` })),
@@ -406,7 +425,7 @@ async function main() {
     const n = (rs: CaseResult[]) => `${rs.filter((r) => r.pass).length}/${rs.length} (${pct(rs.filter((r) => r.pass).length, rs.length)}%)`;
     console.log(`\nOrdering (before 7C): ${n(core)}`);
     if (knowledge.length) console.log(`Bot knowledge (7C):   ${n(knowledge)}`);
-    if (menuPage.length) console.log(`Menu page codes (8):  ${n(menuPage)}`);
+    if (menuPage.length) console.log(`Menu page + zones (8–9): ${n(menuPage)}`);
   }
   console.log(`\nOVERALL: ${passed}/${results.length} (${pct(passed, results.length)}%)`);
   console.log(
