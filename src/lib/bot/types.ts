@@ -1,5 +1,6 @@
 import type { BranchMenu, CartItemInput, PricingResult } from "@/lib/menu/pricing";
 import type { CreatedOrder, EngineResult } from "@/lib/orders/engine";
+import type { DeliveryZone } from "@/lib/delivery/zones";
 import type { FaqRecord, OfferRecord } from "./knowledge";
 
 /** Shared bot types. No Next.js imports. */
@@ -76,6 +77,19 @@ export type BotSession = {
   cartDraftId: string | null;
   /** A menu-page code waiting for the customer to tap "Replace" or "Add". */
   pendingCartCode: string | null;
+  /** Delivery zone matched from the address/pin (Phase 9): fee + minimum for the summary. */
+  deliveryZone: SessionZone | null;
+};
+
+export type SessionZone = {
+  status: "zone" | "unlisted" | "out_of_range";
+  zoneId: string | null;
+  name: string | null;
+  fee: number;
+  minimumOrder: number;
+  etaMinutes: number | null;
+  /** "Area not in list — check" for unlisted areas delivered at the default fee. */
+  flag: string | null;
 };
 
 /** A cart sent from the customer menu page (Phase 8). Choices only, never prices. */
@@ -132,6 +146,9 @@ export type BranchInfo = {
   weekHours: string;
   prepMinutes: number;
   deliveryMinutes: number;
+  /** Phase 9: optional radius check and what to do with areas not in the zone list. */
+  maxDeliveryRadiusKm: number | null;
+  unlistedAreaPolicy: "reject" | "default_fee";
 };
 
 /** Something a tool sends besides the text reply (image, PDF, location pin, extra text). */
@@ -164,6 +181,7 @@ export type BotOrderInput = {
   customer: CustomerInfo;
   deliveryFee: number;
   idempotencyKey: string;
+  deliveryZoneId?: string | null;
 };
 
 export type AiLogRow = {
@@ -225,5 +243,7 @@ export interface BotStore {
   findCartDraft(restaurantId: string, code: string): Promise<CartDraft | null>;
   /** Marks a draft used — atomically, only if unused and not expired. True = this caller got it. */
   claimCartDraft(restaurantId: string, draftId: string, by: { customerId: string | null; sessionId: string; now: Date }): Promise<boolean>;
+  /** Active delivery zones of a branch (Phase 9). */
+  getDeliveryZones(restaurantId: string, branchId: string): Promise<DeliveryZone[]>;
   logTurn(row: AiLogRow): Promise<void>;
 }
