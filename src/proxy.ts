@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { redirectWithCookies, updateSession } from "@/lib/supabase/proxy";
 
 /** Pages for signed-out visitors. Signed-in users are sent on to their home. */
-const AUTH_PAGES = ["/login", "/signup", "/forgot-password"];
+const AUTH_PAGES = ["/login", "/signup", "/forgot-password", "/rider/login"];
 
 /** Reachable without signing in. Everything else requires a session. */
 const PUBLIC_PREFIXES = [
@@ -27,6 +27,10 @@ export async function proxy(request: NextRequest) {
   const { response, userId } = await updateSession(request);
   const { pathname, search } = request.nextUrl;
 
+  // Riders log in with phone + PIN, not email.
+  if (!userId && matches(pathname, ["/rider"]) && pathname !== "/rider/login") {
+    return redirectWithCookies(request, response, "/rider/login", {});
+  }
   if (!userId && pathname !== "/" && !matches(pathname, PUBLIC_PREFIXES)) {
     return redirectWithCookies(request, response, "/login", {
       next: pathname + search,
