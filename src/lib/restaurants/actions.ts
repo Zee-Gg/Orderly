@@ -2,6 +2,7 @@
 
 import { cookies } from "next/headers";
 import { revalidatePath } from "next/cache";
+import { revalidatePublicMenu } from "@/lib/menu/public-cache";
 import { diff, writeAuditLog } from "@/lib/audit";
 import { failure, zodFailure, type ActionResult } from "@/lib/action-result";
 import {
@@ -103,6 +104,7 @@ export async function setRestaurantLogo(path: string): Promise<ActionResult<{ ur
       newData: { logo_url: url },
     });
     revalidatePath("/", "layout");
+    revalidatePublicMenu(ctx.restaurant.id);
     return { ok: true, data: { url } };
   } catch (err) {
     return failure(err, "Couldn't save the logo. Please try again.");
@@ -152,6 +154,7 @@ export async function updateRestaurantProfile(input: unknown): Promise<ActionRes
       newData: changes.newData,
     });
     revalidatePath("/", "layout");
+    revalidatePublicMenu(ctx.restaurant.id);
     return { ok: true };
   } catch (err) {
     return failure(err, "Couldn't save. Please try again.");
