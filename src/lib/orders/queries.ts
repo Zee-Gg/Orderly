@@ -2,7 +2,7 @@ import "server-only";
 import type { CurrentContext } from "@/lib/auth/session";
 import { createClient } from "@/lib/supabase/server";
 import { DEFAULT_TIMEZONE, localDateRange, todayRange } from "@/lib/time";
-import type { OrderSource, OrderStatus, OrderType, PaymentMethod, PaymentStatus } from "./constants";
+import { isSaleStatus, type OrderSource, type OrderStatus, type OrderType, type PaymentMethod, type PaymentStatus } from "./constants";
 import { normalizePhone } from "./phone";
 import { BOARD_STATUSES } from "./status";
 
@@ -191,7 +191,8 @@ export async function getLiveSnapshot(ctx: CurrentContext): Promise<LiveSnapshot
   if (today.error) throw today.error;
 
   const orders = ((board.data ?? []) as unknown as BoardRow[]).map(toBoardOrder);
-  const counted = (today.data ?? []).filter((o) => o.status !== "cancelled" && o.status !== "failed");
+  // Same definition as /reports: sales = delivered + completed orders only.
+  const counted = (today.data ?? []).filter((o) => isSaleStatus(o.status));
   return {
     orders,
     needsStaff: (chats.data ?? []).map((c) => ({
