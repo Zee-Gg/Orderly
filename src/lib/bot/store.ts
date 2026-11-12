@@ -1,10 +1,16 @@
+import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getBranchMenu, resolveCartItem } from "@/lib/menu/pricing";
-import { formatDayHours, isOpenAt, toOpeningHours, weekdayAt } from "@/lib/opening-hours";
+import { formatDayHours, isOpenAt, toOpeningHours, WEEKDAYS, weekdayAt } from "@/lib/opening-hours";
 import { createOrder } from "@/lib/orders/engine";
 import { DEFAULT_TIMEZONE } from "@/lib/time";
 import type { Database, Json } from "@/types/database";
-import type { BotLanguage, BotSession, BotStore, CartLine, TranscriptEntry } from "./types";
+import type { FaqRecord, OfferRecord } from "./knowledge";
+import type { BotLanguage, BotPaymentMethod, BotSession, BotStore, CartDraft, CartLine, TranscriptEntry } from "./types";
+
+const DAY_NAMES: Record<(typeof WEEKDAYS)[number], string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+export { BOT_MEDIA_BUCKET } from "./media-constants";
+import { BOT_MEDIA_BUCKET } from "./media-constants";
 
 /**
  * Supabase BotStore. Uses the ADMIN client (the bot has no user session):
@@ -42,6 +48,36 @@ function toSession(r: SessionRow): BotSession {
     transcript: (Array.isArray(r.transcript) ? r.transcript : []) as unknown as TranscriptEntry[],
     lastActivityAt: r.last_activity_at,
     createdAt: r.created_at,
+    cartDraftId: r.cart_draft_id,
+    pendingCartCode: r.pending_cart_code,
+  };
+}
+
+type DraftRow = Database["public"]["Tables"]["cart_drafts"]["Row"];
+function toDraft(r: DraftRow): CartDraft {
+  const lines = (Array.isArray(r.lines) ? r.lines : []) as {
+    item_id: string;
+    variant_id: string | null;
+    option_ids: string[] | null;
+    removals: string[] | null;
+    quantity: number;
+    notes: string | null;
+  }[];
+  return {
+    id: r.id,
+    code: r.code,
+    branchId: r.branch_id,
+    orderType: r.order_type as CartDraft["orderType"],
+    lines: lines.map((l) => ({
+      itemId: l.item_id,
+      variantId: l.variant_id ?? null,
+      optionIds: l.option_ids ?? [],
+      removals: l.removals ?? [],
+      quantity: l.quantity,
+      notes: l.notes ?? "",
+    })),
+    expiresAt: r.expires_at,
+    usedAt: r.used_at,
   };
 }
 
@@ -56,7 +92,7 @@ export function createSupabaseBotStore(db: Db): BotStore {
       const r = check(
         await db
           .from("restaurants")
-          .select("id, name, phone, timezone, bot_enabled, high_value_cod_threshold")
+          .select("id, name, slug, phone, timezone, bot_enabled, high_value_cod_threshold, mention_offer_on_greeting, dine_in_available, payment_methods")
           .eq("id", restaurantId)
           .maybeSingle(),
         "restaurant",
@@ -65,10 +101,14 @@ export function createSupabaseBotStore(db: Db): BotStore {
         ? {
             id: r.id,
             name: r.name,
+            slug: r.slug,
             phone: r.phone,
             timezone: r.timezone || DEFAULT_TIMEZONE,
             botEnabled: r.bot_enabled,
             highValueCodThreshold: r.high_value_cod_threshold,
+            mentionOfferOnGreeting: r.mention_offer_on_greeting,
+            dineInAvailable: r.dine_in_available,
+            paymentMethods: (r.payment_methods.length ? r.payment_methods : ["cod"]) as BotPaymentMethod[],
           }
         : null;
     },
@@ -77,7 +117,9 @@ export function createSupabaseBotStore(db: Db): BotStore {
       const [b, r] = await Promise.all([
         db
           .from("branches")
-          .select("id, name, address, area, phone, is_open, is_active, opening_hours, default_delivery_fee, minimum_order")
+          .select(
+            "id, name, address, area, phone, is_open, is_active, opening_hours, default_delivery_fee, minimum_order, latitude, longitude, google_maps_url, default_prep_minutes, delivery_minutes",
+          )
           .eq("id", branchId)
           .eq("restaurant_id", restaurantId)
           .maybeSingle(),
@@ -98,6 +140,12 @@ export function createSupabaseBotStore(db: Db): BotStore {
         phone: branch.phone,
         deliveryFee: branch.default_delivery_fee,
         minimumOrder: branch.minimum_order,
+        latitude: branch.latitude,
+        longitude: branch.longitude,
+        mapsUrl: branch.google_maps_url,
+        weekHours: WEEKDAYS.map((d) => `${DAY_NAMES[d]}: ${formatDayHours(hours[d])}`).join("\n"),
+        prepMinutes: branch.default_prep_minutes,
+        deliveryMinutes: branch.delivery_minutes,
       };
     },
 
@@ -169,6 +217,7 @@ export function createSupabaseBotStore(db: Db): BotStore {
         await db
           .from("bot_sessions")
           .update({
+            branch_id: s.branchId,
             status: s.status,
             stage: s.stage,
             cart: s.cart as unknown as Json,
@@ -186,6 +235,8 @@ export function createSupabaseBotStore(db: Db): BotStore {
             handoff_reason: s.handoffReason,
             transcript: s.transcript as unknown as Json,
             last_activity_at: s.lastActivityAt,
+            cart_draft_id: s.cartDraftId,
+            pending_cart_code: s.pendingCartCode,
           })
           .eq("id", s.id)
           .eq("restaurant_id", s.restaurantId),
@@ -252,6 +303,122 @@ export function createSupabaseBotStore(db: Db): BotStore {
 
     async setRiskFlag(restaurantId, orderId, flag) {
       check(await db.from("orders").update({ risk_flag: flag }).eq("id", orderId).eq("restaurant_id", restaurantId), "risk flag");
+    },
+
+    async getMenuMedia(restaurantId, branchId) {
+      const rows = check(
+        await db
+          .from("menu_media")
+          .select("type, storage_path, file_name, branch_id, sort_order, uploaded_at")
+          .eq("restaurant_id", restaurantId)
+          .eq("is_active", true)
+          .or(`branch_id.is.null,branch_id.eq.${branchId}`)
+          .order("sort_order")
+          .order("uploaded_at"),
+        "menu media",
+      );
+      return (rows ?? []).map((m) => ({
+        type: m.type as "image" | "pdf",
+        url: db.storage.from(BOT_MEDIA_BUCKET).getPublicUrl(m.storage_path).data.publicUrl,
+        fileName: m.file_name,
+      }));
+    },
+
+    async getOffers(restaurantId) {
+      const rows = check(
+        await db
+          .from("offers")
+          .select("id, branch_id, title, title_ur, description, menu_item_id, image_path, starts_at, ends_at, days_of_week, start_time, end_time, is_active, sort_order")
+          .eq("restaurant_id", restaurantId)
+          .eq("is_active", true)
+          .order("sort_order"),
+        "offers",
+      );
+      return (rows ?? []).map(
+        (o): OfferRecord => ({
+          id: o.id,
+          branchId: o.branch_id,
+          title: o.title,
+          titleUr: o.title_ur,
+          description: o.description,
+          menuItemId: o.menu_item_id,
+          imagePath: o.image_path,
+          startsAt: o.starts_at,
+          endsAt: o.ends_at,
+          daysOfWeek: o.days_of_week,
+          startTime: o.start_time,
+          endTime: o.end_time,
+          isActive: o.is_active,
+          sortOrder: o.sort_order,
+        }),
+      );
+    },
+
+    async getFaqs(restaurantId) {
+      const rows = check(
+        await db
+          .from("restaurant_faqs")
+          .select("id, question, answer, answer_ur, keywords, is_active, sort_order")
+          .eq("restaurant_id", restaurantId)
+          .eq("is_active", true)
+          .order("sort_order"),
+        "faqs",
+      );
+      return (rows ?? []).map(
+        (f): FaqRecord => ({ id: f.id, question: f.question, answer: f.answer, answerUr: f.answer_ur, keywords: f.keywords, isActive: f.is_active, sortOrder: f.sort_order }),
+      );
+    },
+
+    async getBestsellerCounts(restaurantId, branchId, sinceIso) {
+      const { data, error } = await db.rpc("bot_bestsellers", { p_restaurant_id: restaurantId, p_branch_id: branchId, p_since: sinceIso, p_limit: 10 });
+      if (error) throw new Error(`bestsellers: ${error.message}`);
+      return (data ?? []).map((r) => ({ itemId: r.item_id, quantity: Number(r.quantity) }));
+    },
+
+    async getItemPhotoUrl(restaurantId, itemId, imageUrl) {
+      if (!imageUrl) return null;
+      // WhatsApp image messages take JPEG/PNG only; item photos are WebP. Keep a JPEG copy in bot-media.
+      const key = createHash("sha1").update(imageUrl).digest("hex").slice(0, 12);
+      const path = `${restaurantId}/photos/${itemId}-${key}.jpg`;
+      const bucket = db.storage.from(BOT_MEDIA_BUCKET);
+      const publicUrl = bucket.getPublicUrl(path).data.publicUrl;
+      const { data: existing } = await bucket.list(`${restaurantId}/photos`, { search: `${itemId}-${key}.jpg`, limit: 1 });
+      if (existing?.length) return publicUrl;
+      const res = await fetch(imageUrl, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
+      if (!res?.ok) return null;
+      const sharp = (await import("sharp")).default;
+      const jpeg = await sharp(Buffer.from(await res.arrayBuffer()))
+        .rotate()
+        .resize({ width: 1600, height: 1600, fit: "inside", withoutEnlargement: true })
+        .flatten({ background: "#ffffff" })
+        .jpeg({ quality: 82, mozjpeg: true })
+        .toBuffer();
+      const { error } = await bucket.upload(path, jpeg, { contentType: "image/jpeg", upsert: true });
+      if (error) throw new Error(`item photo: ${error.message}`);
+      return publicUrl;
+    },
+
+    async findCartDraft(restaurantId, code) {
+      const r = check(
+        await db.from("cart_drafts").select("*").eq("restaurant_id", restaurantId).eq("code", code.toUpperCase()).maybeSingle(),
+        "cart draft",
+      );
+      return r ? toDraft(r) : null;
+    },
+
+    async claimCartDraft(restaurantId, draftId, by) {
+      const rows = check(
+        await db
+          .from("cart_drafts")
+          .update({ used_at: by.now.toISOString(), used_by_customer_id: by.customerId, session_id: by.sessionId })
+          .eq("id", draftId)
+          .eq("restaurant_id", restaurantId)
+          .is("used_at", null)
+          .gt("expires_at", by.now.toISOString())
+          .select("id"),
+        "claim cart draft",
+      );
+      return (rows ?? []).length === 1;
     },
 
     async logTurn(row) {
