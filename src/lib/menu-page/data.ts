@@ -43,6 +43,8 @@ export type PublicMenu = {
   whatsappNumber: string | null;
   offers: Pick<OfferRecord, "id" | "branchId" | "title" | "titleUr" | "description" | "menuItemId" | "startsAt" | "endsAt" | "daysOfWeek" | "startTime" | "endTime">[];
   categories: PageCategory[];
+  /** Phase 9: delivery areas of this branch (fee depends on the area). */
+  zones: { id: string; name: string; fee: number; minimumOrder: number }[];
 };
 
 type InfoRow = {
@@ -95,7 +97,16 @@ export async function loadPublicMenu(slug: string, branchId: string | null): Pro
   cacheTag(publicMenuTag(info.restaurant.id));
   cacheLife({ stale: 300, revalidate: 900, expire: 3600 });
 
-  const menu = await getBranchMenu(db, info.restaurant.id, info.branch_id);
+  const [menu, zoneRows] = await Promise.all([
+    getBranchMenu(db, info.restaurant.id, info.branch_id),
+    db
+      .from("delivery_zones")
+      .select("id, name, delivery_fee, minimum_order")
+      .eq("restaurant_id", info.restaurant.id)
+      .eq("branch_id", info.branch_id)
+      .eq("is_active", true)
+      .order("sort_order"),
+  ]);
   const best = new Set(info.bestseller_ids);
   return {
     restaurant: {
@@ -134,6 +145,7 @@ export async function loadPublicMenu(slug: string, branchId: string | null): Pro
         startTime: o.start_time,
         endTime: o.end_time,
       })),
+    zones: (zoneRows.data ?? []).map((z) => ({ id: z.id, name: z.name, fee: z.delivery_fee, minimumOrder: z.minimum_order })),
     categories: menu.categories.map((c) => ({
       id: c.id,
       name: c.name,
