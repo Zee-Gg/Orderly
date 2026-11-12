@@ -56,6 +56,11 @@ export async function setDeliveryAddressTool(ctx: BotContext, input: z.infer<typ
 }
 
 export async function setPaymentMethodTool(ctx: BotContext, input: z.infer<typeof paymentSchema>): Promise<ToolResult> {
+  if (!ctx.restaurant.paymentMethods.includes(input.payment_method)) {
+    return fail("PAYMENT_NOT_ACCEPTED", "This restaurant doesn't accept that payment method.", {
+      accepted: ctx.restaurant.paymentMethods.map((m) => (m === "cod" ? "cash on delivery" : "card on delivery")),
+    });
+  }
   ctx.session.paymentMethod = input.payment_method;
   invalidateSummary(ctx.session);
   return { ok: true, payment_method: input.payment_method, ...next(ctx) };
@@ -182,9 +187,14 @@ export async function getRestaurantInfoTool(ctx: BotContext): Promise<ToolResult
     today_hours: b.todayHours,
     address: [b.address, b.area].filter(Boolean).join(", ") || null,
     phone: b.phone || ctx.restaurant.phone,
+    week_hours: b.weekHours,
     delivery_fee: money(b.deliveryFee),
     minimum_order_for_delivery: b.minimumOrder ? money(b.minimumOrder) : null,
-    payment_methods: ["cash on delivery", "card on delivery"],
+    delivery_time: `about ${b.prepMinutes + b.deliveryMinutes} minutes`,
+    pickup_ready_time: `about ${b.prepMinutes} minutes`,
+    payment_methods: ctx.restaurant.paymentMethods.map((m) => (m === "cod" ? "cash on delivery" : "card on delivery")),
+    dine_in_available: ctx.restaurant.dineInAvailable,
+    has_location_pin: b.latitude != null && b.longitude != null,
   };
 }
 
