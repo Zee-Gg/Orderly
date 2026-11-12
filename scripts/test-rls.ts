@@ -15,6 +15,8 @@ import { runBotTurn } from "../src/lib/bot/agent";
 import { buildMenuIndex } from "../src/lib/bot/menu-index";
 import { createSupabaseBotStore } from "../src/lib/bot/store";
 import { createBotTestRestaurant } from "../src/lib/bot/testing/test-restaurant";
+import { getBranchMenu } from "../src/lib/menu/pricing";
+import { createCartDraft } from "../src/lib/menu-page/drafts";
 
 process.loadEnvFile(".env.local");
 
@@ -33,6 +35,7 @@ const RUN = Date.now().toString(36);
 const PASSWORD = `Rls-test-${RUN}-Aa1!`;
 const LOGO_BUCKET = "restaurant-logos";
 const MEDIA_BUCKET = "whatsapp-media";
+const BOT_MEDIA_BUCKET = "bot-media";
 
 // ---------------------------------------------------------------------------
 // Reporting
@@ -55,6 +58,7 @@ const createdUserIds: string[] = [];
 const createdRestaurantIds: string[] = [];
 const uploadedPaths: string[] = [];
 const uploadedMediaPaths: string[] = [];
+const uploadedBotMediaPaths: string[] = [];
 
 async function makeUser(label: string): Promise<TestUser> {
   const email = `rls-${label}-${RUN}@example.com`;
@@ -384,7 +388,10 @@ async function main() {
   await menuChecks(ownerA, ownerB, kitchenA, restA, restB);
   await whatsappChecks(ownerA, ownerB, kitchenA, restA);
   await botChecks(ownerA, ownerB, kitchenA, restA);
+  await knowledgeChecks(ownerA, ownerB, kitchenA, restA);
+  await menuPageSecurityChecks(ownerA, ownerB, kitchenA, restA);
   await botConversationCheck();
+  await menuPageFlowCheck();
 }
 
 async function orderChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest, restB: Rest) {
@@ -858,6 +865,9 @@ async function menuChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser
     !suspended.error && suspended.data === null,
     JSON.stringify(suspended),
   );
+  const suspendedInfo = await anon.rpc("get_public_menu_info", { p_slug: restA.slug });
+  check("Menu page info is empty for a suspended restaurant", !suspendedInfo.error && suspendedInfo.data === null, JSON.stringify(suspendedInfo));
+  await admin.from("restaurants").update({ status: "trial" }).eq("id", restA.id); // back to normal for later checks
 }
 
 async function whatsappChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest) {
@@ -1033,6 +1043,7 @@ async function cleanup() {
   section("Cleanup");
   if (uploadedPaths.length) await admin.storage.from(LOGO_BUCKET).remove(uploadedPaths);
   if (uploadedMediaPaths.length) await admin.storage.from(MEDIA_BUCKET).remove(uploadedMediaPaths);
+  if (uploadedBotMediaPaths.length) await admin.storage.from(BOT_MEDIA_BUCKET).remove(uploadedBotMediaPaths);
   await admin.from("whatsapp_webhook_events").delete().eq("raw->>rls", RUN);
   if (createdRestaurantIds.length) {
     const { error } = await admin.from("restaurants").delete().in("id", createdRestaurantIds);
@@ -1175,6 +1186,339 @@ async function botChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser,
     check("Kitchen cannot read AI corrections", (kCorr.data?.length ?? 0) === 0, JSON.stringify(kCorr));
     const insCorr = await ownerA.client.from("ai_corrections").insert({ restaurant_id: restA.id, order_id: anyOrder.id, before: {}, after: {} });
     check("Nobody writes AI corrections from the browser", insCorr.error !== null, JSON.stringify(insCorr));
+  }
+}
+
+/** Phase 7C: menu images, offers, FAQs — members read, owner/manager write, other restaurants nothing. */
+async function knowledgeChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest) {
+  section("Bot knowledge: owner manages offers, FAQs and menu images");
+  const riderA = await makeUser("rider-a");
+  const addRider = await ownerA.client.from("memberships").insert({ user_id: riderA.id, restaurant_id: restA.id, role: "rider" });
+  check("Owner A can add a rider", addRider.error === null, JSON.stringify(addRider.error));
+
+  const { data: item } = await admin.from("menu_items").select("id").eq("restaurant_id", restA.id).is("archived_at", null).limit(1).single();
+  const offer = await ownerA.client
+    .from("offers")
+    .insert({ restaurant_id: restA.id, title: "Friday Deal", menu_item_id: item!.id, days_of_week: [5] })
+    .select("id")
+    .single();
+  check("Owner A can create an offer linked to a menu item", !offer.error && !!offer.data, JSON.stringify(offer.error));
+  const { data: itemB } = await admin.from("menu_items").select("id").neq("restaurant_id", restA.id).limit(1).maybeSingle();
+  if (itemB) {
+    const crossItem = await ownerA.client.from("offers").insert({ restaurant_id: restA.id, title: "Stolen", menu_item_id: itemB.id });
+    check("An offer can't point at another restaurant's item", crossItem.error !== null, JSON.stringify(crossItem));
+  }
+  const noItem = await ownerA.client.from("offers").insert({ restaurant_id: restA.id, title: "No item" } as never);
+  check("An offer needs a menu item", noItem.error !== null, JSON.stringify(noItem));
+  const halfTime = await ownerA.client.from("offers").insert({ restaurant_id: restA.id, title: "Half", menu_item_id: item!.id, start_time: "12:00" });
+  check("Offer times are both set or both empty", halfTime.error !== null, JSON.stringify(halfTime));
+
+  const faq = await ownerA.client
+    .from("restaurant_faqs")
+    .insert({ restaurant_id: restA.id, question: "Parking?", answer: "Yes", keywords: ["parking"] })
+    .select("id")
+    .single();
+  check("Owner A can add an FAQ", !faq.error && !!faq.data, JSON.stringify(faq.error));
+
+  const path = `${restA.id}/menu/rls-${RUN}.jpg`;
+  const jpeg = () => new Blob([new Uint8Array([255, 216, 255, 224])], { type: "image/jpeg" });
+  const up = await ownerA.client.storage.from(BOT_MEDIA_BUCKET).upload(path, jpeg());
+  if (!up.error) uploadedBotMediaPaths.push(path);
+  check("Owner A can upload a menu image to their folder", up.error === null, JSON.stringify(up.error));
+  const media = await ownerA.client
+    .from("menu_media")
+    .insert({ restaurant_id: restA.id, type: "image", storage_path: path, file_name: "menu.jpg", size_bytes: 4 })
+    .select("id")
+    .single();
+  check("Owner A can save a menu image", !media.error && !!media.data, JSON.stringify(media.error));
+  const pub = await fetch(admin.storage.from(BOT_MEDIA_BUCKET).getPublicUrl(path).data.publicUrl);
+  check("Menu images are public (WhatsApp fetches them by URL)", pub.ok, String(pub.status));
+  const backdate = await ownerA.client
+    .from("menu_media")
+    .update({ uploaded_at: "2020-01-01T00:00:00Z" } as never)
+    .eq("id", media.data!.id)
+    .select("id");
+  check("Nobody back-dates a menu image (uploaded_at is not writable)", backdate.error !== null, JSON.stringify(backdate));
+  const exePath = `${restA.id}/menu/rls-${RUN}.exe`;
+  const exe = await ownerA.client.storage.from(BOT_MEDIA_BUCKET).upload(exePath, new Blob(["MZ"], { type: "application/x-msdownload" }));
+  if (!exe.error) uploadedBotMediaPaths.push(exePath);
+  check("Only images and PDFs can be uploaded to bot-media", exe.error !== null, JSON.stringify(exe.data));
+
+  section("Bot knowledge: restaurant B can't see or change A's");
+  const rows = [
+    ["offers", offer.data!.id],
+    ["restaurant_faqs", faq.data!.id],
+    ["menu_media", media.data!.id],
+  ] as const;
+  for (const [table, id] of rows) {
+    const read = await ownerB.client.from(table).select("id").eq("id", id);
+    check(`Restaurant B cannot read A's ${table}`, !read.error && read.data.length === 0, JSON.stringify(read));
+    const upd = await ownerB.client.from(table).update({ sort_order: 99 }).eq("id", id).select("id");
+    check(`Restaurant B cannot edit A's ${table}`, upd.error !== null || upd.data.length === 0, JSON.stringify(upd));
+    const del = await ownerB.client.from(table).delete().eq("id", id).select("id");
+    check(`Restaurant B cannot delete A's ${table}`, del.error !== null || del.data.length === 0, JSON.stringify(del));
+  }
+  const bIns = await ownerB.client.from("restaurant_faqs").insert({ restaurant_id: restA.id, question: "Hacked?", answer: "Yes" });
+  check("Restaurant B cannot add FAQs to A", bIns.error !== null, JSON.stringify(bIns));
+  const bOffer = await ownerB.client.from("offers").insert({ restaurant_id: restA.id, title: "Fake deal", menu_item_id: item!.id });
+  check("Restaurant B cannot add offers to A", bOffer.error !== null, JSON.stringify(bOffer));
+  const bPath = `${restA.id}/menu/b-${RUN}.jpg`;
+  const bUp = await ownerB.client.storage.from(BOT_MEDIA_BUCKET).upload(bPath, jpeg());
+  if (!bUp.error) uploadedBotMediaPaths.push(bPath);
+  check("Restaurant B cannot upload into A's bot-media folder", bUp.error !== null, JSON.stringify(bUp.data));
+  const bRm = await ownerB.client.storage.from(BOT_MEDIA_BUCKET).remove([path]);
+  const stillThere = await admin.storage.from(BOT_MEDIA_BUCKET).list(`${restA.id}/menu`, { search: `rls-${RUN}.jpg` });
+  check(
+    "Restaurant B cannot delete A's menu image file",
+    (bRm.data?.length ?? 0) === 0 && (stillThere.data?.length ?? 0) === 1,
+    JSON.stringify({ bRm: bRm.data, stillThere: stillThere.data?.length }),
+  );
+  const since = new Date(0).toISOString();
+  const bRpc = await ownerB.client.rpc("bot_bestsellers", { p_restaurant_id: restA.id, p_branch_id: restA.branchId, p_since: since });
+  check("Users cannot call bot_bestsellers (server only)", bRpc.error !== null, JSON.stringify(bRpc));
+  const svcRpc = await admin.rpc("bot_bestsellers", { p_restaurant_id: restA.id, p_branch_id: restA.branchId, p_since: since });
+  check("Server can read bestsellers", !svcRpc.error && Array.isArray(svcRpc.data), JSON.stringify(svcRpc.error));
+
+  section("Bot knowledge: kitchen and rider can read but not edit");
+  const staffUsers = [
+    ["Kitchen", kitchenA],
+    ["Rider", riderA],
+  ] as const;
+  for (const [label, user] of staffUsers) {
+    const read = await user.client.from("offers").select("id").eq("restaurant_id", restA.id);
+    check(`${label} can read offers`, !read.error && read.data.length === 1, JSON.stringify(read));
+    const updO = await user.client.from("offers").update({ title: "Free food" }).eq("id", offer.data!.id).select("id");
+    check(`${label} cannot edit offers`, updO.error !== null || updO.data.length === 0, JSON.stringify(updO));
+    const updF = await user.client.from("restaurant_faqs").update({ answer: "No" }).eq("id", faq.data!.id).select("id");
+    check(`${label} cannot edit FAQs`, updF.error !== null || updF.data.length === 0, JSON.stringify(updF));
+    const insF = await user.client.from("restaurant_faqs").insert({ restaurant_id: restA.id, question: "New?", answer: "x" });
+    check(`${label} cannot add FAQs`, insF.error !== null, JSON.stringify(insF));
+    const delM = await user.client.from("menu_media").delete().eq("id", media.data!.id).select("id");
+    check(`${label} cannot remove menu images`, delM.error !== null || delM.data.length === 0, JSON.stringify(delM));
+    const p = `${restA.id}/menu/${label}-${RUN}.jpg`;
+    const upM = await user.client.storage.from(BOT_MEDIA_BUCKET).upload(p, jpeg());
+    if (!upM.error) uploadedBotMediaPaths.push(p);
+    check(`${label} cannot upload menu images`, upM.error !== null, JSON.stringify(upM.data));
+    const rest = await user.client.from("restaurants").update({ payment_methods: ["cod"] }).eq("id", restA.id).select("id");
+    check(`${label} cannot change payment methods`, rest.error !== null || rest.data.length === 0, JSON.stringify(rest));
+  }
+
+  section("Bot knowledge: restaurant info settings");
+  const info = await ownerA.client
+    .from("restaurants")
+    .update({ dine_in_available: false, payment_methods: ["cod"], mention_offer_on_greeting: false })
+    .eq("id", restA.id)
+    .select("id");
+  check("Owner can set dine-in, payment methods and the greeting offer", !info.error && info.data.length === 1, JSON.stringify(info));
+  const noPay = await ownerA.client.from("restaurants").update({ payment_methods: [] }).eq("id", restA.id).select("id");
+  check("At least one payment method is required", noPay.error !== null, JSON.stringify(noPay));
+  const badPay = await ownerA.client.from("restaurants").update({ payment_methods: ["bitcoin"] }).eq("id", restA.id).select("id");
+  check("Only known payment methods", badPay.error !== null, JSON.stringify(badPay));
+  const loc = await ownerA.client
+    .from("branches")
+    .update({ latitude: 24.8138, longitude: 67.0299, google_maps_url: "https://maps.app.goo.gl/x", delivery_minutes: 25 })
+    .eq("id", restA.branchId)
+    .select("id");
+  check("Owner can set the branch pin, Maps link and delivery time", !loc.error && loc.data.length === 1, JSON.stringify(loc));
+  const bLoc = await ownerB.client.from("branches").update({ latitude: 1, longitude: 1 }).eq("id", restA.branchId).select("id");
+  check("Restaurant B cannot move A's branch pin", bLoc.error !== null || bLoc.data.length === 0, JSON.stringify(bLoc));
+
+  const del = await ownerA.client.from("offers").delete().eq("id", offer.data!.id).select("id");
+  check("Owner A can delete their offer", !del.error && del.data.length === 1, JSON.stringify(del));
+}
+
+/** Phase 8: cart drafts and page views are server-only; anyone can read the public page info. */
+async function menuPageSecurityChecks(ownerA: TestUser, ownerB: TestUser, kitchenA: TestUser, restA: Rest) {
+  section("Menu page: public info, server-only drafts and views");
+  const anon = createClient<Database>(url!, publishableKey!, noSession);
+  const info = await anon.rpc("get_public_menu_info", { p_slug: restA.slug });
+  const infoData = info.data as { restaurant?: { id: string }; branch_id?: string } | null;
+  check("Anyone can read a restaurant's public menu info", !info.error && infoData?.restaurant?.id === restA.id, JSON.stringify(info.error));
+  check("Public info picks the default branch", infoData?.branch_id === restA.branchId, JSON.stringify(infoData?.branch_id));
+  const unknown = await anon.rpc("get_public_menu_info", { p_slug: `no-such-${RUN}` });
+  check("Unknown restaurant → no info", !unknown.error && unknown.data === null, JSON.stringify(unknown));
+
+  const draft = await admin
+    .from("cart_drafts")
+    .insert({
+      code: "R7S9",
+      restaurant_id: restA.id,
+      branch_id: restA.branchId,
+      lines: [{ item_id: crypto.randomUUID(), quantity: 1 }],
+      created_ip_hash: "secret-hash",
+    })
+    .select("id")
+    .single();
+  check("Server can save a cart draft", !draft.error, JSON.stringify(draft.error));
+  const badCode = await admin.from("cart_drafts").insert({ code: "OOOO", restaurant_id: restA.id, branch_id: restA.branchId, lines: [{}] });
+  check("Codes never use look-alike letters (O/0/I/1)", badCode.error !== null, JSON.stringify(badCode.error));
+  const dupCode = await admin.from("cart_drafts").insert({ code: "R7S9", restaurant_id: restA.id, branch_id: restA.branchId, lines: [{}] });
+  check("A code is unique per restaurant", dupCode.error !== null, JSON.stringify(dupCode.error));
+
+  const anonDraft = await anon.from("cart_drafts").select("id");
+  check("Anonymous users cannot read cart drafts", anonDraft.error !== null || anonDraft.data.length === 0, JSON.stringify(anonDraft));
+  const anonIns = await anon.from("cart_drafts").insert({ code: "X2X2", restaurant_id: restA.id, branch_id: restA.branchId, lines: [{}] });
+  check("Anonymous users cannot create cart drafts (only the API can)", anonIns.error !== null, JSON.stringify(anonIns));
+  const ownIns = await ownerA.client.from("cart_drafts").insert({ code: "X3X3", restaurant_id: restA.id, branch_id: restA.branchId, lines: [{}] });
+  check("Even owners cannot write cart drafts", ownIns.error !== null, JSON.stringify(ownIns));
+  const ownRead = await ownerA.client.from("cart_drafts").select("id, used_at").eq("restaurant_id", restA.id);
+  check("Owner A can read their draft stats", !ownRead.error && ownRead.data.length === 1, JSON.stringify(ownRead));
+  const ownLines = await ownerA.client.from("cart_drafts").select("lines, created_ip_hash");
+  check("Nobody reads draft lines or IP hashes from the browser", ownLines.error !== null, JSON.stringify(ownLines.data));
+  const bRead = await ownerB.client.from("cart_drafts").select("id").eq("restaurant_id", restA.id);
+  check("Restaurant B cannot read A's cart drafts", !bRead.error && bRead.data.length === 0, JSON.stringify(bRead));
+  const kRead = await kitchenA.client.from("cart_drafts").select("id");
+  check("Kitchen cannot read cart drafts", (kRead.data?.length ?? 0) === 0, JSON.stringify(kRead));
+
+  const anonView = await anon.rpc("record_menu_page_view", { p_restaurant_id: restA.id, p_branch_id: restA.branchId });
+  check("Anonymous users cannot count views directly (only the API can)", anonView.error !== null, JSON.stringify(anonView));
+  const v1 = await admin.rpc("record_menu_page_view", { p_restaurant_id: restA.id, p_branch_id: restA.branchId });
+  await admin.rpc("record_menu_page_view", { p_restaurant_id: restA.id, p_branch_id: restA.branchId });
+  const views = await ownerA.client.from("menu_page_views").select("views").eq("restaurant_id", restA.id);
+  check("Server counts page views per day; owner reads them", !v1.error && views.data?.[0]?.views === 2, JSON.stringify({ v1: v1.error, views }));
+  const bViews = await ownerB.client.from("menu_page_views").select("views").eq("restaurant_id", restA.id);
+  check("Restaurant B cannot read A's page views", !bViews.error && bViews.data.length === 0, JSON.stringify(bViews));
+  const ownViewIns = await ownerA.client.from("menu_page_views").insert({ restaurant_id: restA.id, branch_id: restA.branchId, day: "2026-01-01", views: 999 });
+  check("Nobody fakes page views from the browser", ownViewIns.error !== null, JSON.stringify(ownViewIns));
+  const pending = await ownerA.client.from("bot_sessions").update({ pending_cart_code: "R7S9" }).eq("restaurant_id", restA.id).select("id");
+  check("Nobody sets a session's pending cart code from the browser", pending.error !== null || pending.data.length === 0, JSON.stringify(pending));
+}
+
+/**
+ * Phase 8 integration (REAL database, pricing engine and order engine):
+ * the page's draft API → code in a chat → cart loaded → summary → Confirm →
+ * exactly one order. Plus expired codes, stock changes and the rate limit.
+ */
+async function menuPageFlowCheck() {
+  section("Menu page: draft API → WhatsApp code → one order");
+  const t = await createBotTestRestaurant(admin, { url: url!, publishableKey: publishableKey! }, "mp");
+  createdRestaurantIds.push(t.restaurantId);
+  createdUserIds.push(t.ownerId);
+  try {
+    await admin.from("whatsapp_accounts").insert({
+      restaurant_id: t.restaurantId,
+      branch_id: t.openBranchId,
+      phone_number_id: `7${Date.now()}`.slice(0, 15),
+      waba_id: "1234567890",
+      display_phone_number: "+92 300 7654321",
+      access_token_encrypted: encryptToken("fake"),
+    });
+    const { data: rest } = await admin.from("restaurants").select("slug").eq("id", t.restaurantId).single();
+    const slug = rest!.slug;
+    const menu = await getBranchMenu(admin, t.restaurantId, t.openBranchId);
+    const pizza = menu.categories.flatMap((c) => c.items).find((i) => i.name === "Chicken Tikka Pizza")!;
+    const large = pizza.sizes.find((s) => s.name === "Large")!.id;
+    const cheese = pizza.groups[0].options.find((o) => o.name === "Extra Cheese")!.id;
+    const base = { slug, branchId: t.openBranchId, language: "en" as const };
+
+    const bad = await createCartDraft(admin, { ...base, orderType: "delivery", lines: [{ itemId: t.itemIds["Loaded Fries"], optionIds: [], removals: [], quantity: 1, notes: "" }, { itemId: t.itemIds["Zinger Burger"], optionIds: [], removals: [], quantity: 1, notes: "" }] }, { ipHash: null });
+    check("Out-of-stock line → the API says which line", !bad.ok && bad.error === "INVALID_LINES" && bad.problems?.[0]?.index === 0 && bad.problems[0].code === "ITEM_OUT_OF_STOCK", JSON.stringify(bad));
+    const noSize = await createCartDraft(admin, { ...base, lines: [{ itemId: pizza.id, optionIds: [], removals: [], quantity: 1, notes: "" }] }, { ipHash: null });
+    check("A missing required size is rejected", !noSize.ok && noSize.problems?.[0]?.code === "SIZE_REQUIRED", JSON.stringify(noSize));
+    const closed = await createCartDraft(admin, { ...base, branchId: t.closedBranchId, lines: [{ itemId: t.itemIds["Raita"], optionIds: [], removals: [], quantity: 1, notes: "" }] }, { ipHash: null });
+    check("A closed branch can't receive carts", !closed.ok && (closed.error === "CLOSED" || closed.error === "NOT_FOUND"), JSON.stringify(closed));
+    const missing = await createCartDraft(admin, { ...base, slug: `no-such-${RUN}`, lines: [{ itemId: t.itemIds["Raita"], optionIds: [], removals: [], quantity: 1, notes: "" }] }, { ipHash: null });
+    check("Unknown restaurant → NOT_FOUND", !missing.ok && missing.error === "NOT_FOUND", JSON.stringify(missing));
+
+    const ok = await createCartDraft(
+      admin,
+      {
+        ...base,
+        orderType: "pickup",
+        lines: [
+          { itemId: t.itemIds["Zinger Burger"], optionIds: [], removals: [], quantity: 2, notes: "" },
+          { itemId: pizza.id, variantId: large, optionIds: [cheese], removals: ["Onion"], quantity: 1, notes: "well done" },
+        ],
+      },
+      { ipHash: `ip-${RUN}` },
+    );
+    check("Draft saved with a readable code and engine prices (1,100 + 2,000)", ok.ok && /^[A-HJ-NP-Z2-9]{4,5}$/.test(ok.code) && ok.subtotal === 310000, JSON.stringify(ok));
+    if (!ok.ok) return;
+
+    // Rate limit: 20 drafts an hour per IP.
+    await admin.from("cart_drafts").insert(
+      Array.from({ length: 19 }, (_, i) => ({
+        code: `Z${"ABC"[Math.floor(i / 8)]}${(i % 8) + 2}K`,
+        restaurant_id: t.restaurantId,
+        branch_id: t.openBranchId,
+        lines: [{}],
+        created_ip_hash: `ip-${RUN}`,
+      })),
+    );
+    const { count: sameIp } = await admin.from("cart_drafts").select("id", { count: "exact", head: true }).eq("created_ip_hash", `ip-${RUN}`);
+    check("(setup) 20 carts from one IP this hour", sameIp === 20, String(sameIp));
+    const limited = await createCartDraft(admin, { ...base, lines: [{ itemId: t.itemIds["Raita"], optionIds: [], removals: [], quantity: 1, notes: "" }] }, { ipHash: `ip-${RUN}` });
+    check("Rate limit: the 21st cart in an hour from one IP is refused", !limited.ok && limited.error === "RATE_LIMITED", JSON.stringify(limited));
+
+    // The chat: code → cart loaded by code → (fake model) name + cash → summary → Confirm.
+    const store = createSupabaseBotStore(admin);
+    const customerId = await t.newCustomer({ name: null });
+    let turnNo = 0;
+    let step = 0;
+    const turns: { tools?: { name: string; input: unknown }[]; text?: string }[][] = [
+      [{ text: "Payment cash ya card?" }],
+      [{ tools: [{ name: "set_payment_method", input: { payment_method: "cod" } }, { name: "set_customer_name", input: { name: "Sana" } }] }, { tools: [{ name: "show_order_summary", input: {} }] }, { text: "" }],
+    ];
+    const model = new MockLanguageModelV4({
+      modelId: "scripted",
+      doGenerate: async () => {
+        const s = turns[turnNo][Math.min(step++, turns[turnNo].length - 1)];
+        return {
+          content: [
+            ...(s.tools ?? []).map((x, i) => ({ type: "tool-call" as const, toolCallId: `mp${turnNo}-${step}-${i}`, toolName: x.name, input: JSON.stringify(x.input) })),
+            ...(s.text !== undefined ? [{ type: "text" as const, text: s.text }] : []),
+          ],
+          finishReason: { unified: s.tools?.length ? ("tool-calls" as const) : ("stop" as const), raw: undefined },
+          usage: { inputTokens: { total: 100, noCache: 100, cacheRead: 0, cacheWrite: 0 }, outputTokens: { total: 10, text: 10, reasoning: 0 } },
+          warnings: [],
+        };
+      },
+    });
+    const deps = { store, provider: "google" as const, model: { model, modelId: "scripted" } };
+    const chat = { restaurantId: t.restaurantId, branchId: t.openBranchId, customerId };
+    const r1 = await runBotTurn({ ...chat, sessionId: null, customerMessages: [`Hi! Mera order code: ${ok.code.toLowerCase()} 🛒\n2x Zinger Burger\n1x Large Chicken Tikka Pizza\n(Pickup)`] }, deps);
+    check(
+      "Code → cart loaded with engine prices and the order type",
+      r1.session.cart.length === 2 && r1.session.cart.reduce((n, l) => n + l.lineTotal, 0) === 310000 && r1.session.orderType === "pickup",
+      JSON.stringify(r1.session.cart.map((l) => [l.name, l.lineTotal])),
+    );
+    check("Reply lists the loaded items, then the bot's question", (r1.replyText ?? "").startsWith("🛒 Aap ka order mil gaya: 2x Zinger Burger, 1x Chicken Tikka Pizza (Large).\n\nPayment"), r1.replyText ?? "");
+    turnNo = 1;
+    step = 0;
+    const r2 = await runBotTurn({ ...chat, sessionId: r1.sessionId, customerMessages: ["cash, naam Sana"] }, deps);
+    check("Then the normal flow: summary with Confirm", r2.session.status === "awaiting_confirmation" && (r2.replyText ?? "").includes("Rs 3,100"), r2.replyText ?? "");
+    await runBotTurn({ ...chat, sessionId: r1.sessionId, customerMessages: ["Confirm"], buttonId: "confirm" }, deps);
+    const { data: orders } = await admin.from("orders").select("id, total, order_type, source, status").eq("customer_id", customerId);
+    check("Exactly one order, total 3,100, pickup, waiting for acceptance", orders?.length === 1 && orders[0].total === 310000 && orders[0].order_type === "pickup" && orders[0].status === "awaiting_acceptance", JSON.stringify(orders));
+    const { data: d1 } = await admin.from("cart_drafts").select("used_at, used_by_customer_id, session_id").eq("restaurant_id", t.restaurantId).eq("code", ok.code).single();
+    check("Draft marked used by this customer and session", !!d1?.used_at && d1.used_by_customer_id === customerId && d1.session_id === r1.sessionId, JSON.stringify(d1));
+    const { data: sess } = await admin.from("bot_sessions").select("cart_draft_id, order_id").eq("id", r1.sessionId).single();
+    check("Session links the draft and the order (conversion stats)", !!sess?.cart_draft_id && !!sess.order_id, JSON.stringify(sess));
+
+    // Same code again → expired message (single use), no second order.
+    const again = await runBotTurn({ ...chat, sessionId: null, customerMessages: [`Hi! Mera order code: ${ok.code}`] }, deps);
+    check("A code works only once", (again.replyText ?? "").startsWith("Ye order code expire ho gaya hai"), again.replyText ?? "");
+
+    // Expired (older than 2 hours).
+    const old = await createCartDraft(admin, { ...base, lines: [{ itemId: t.itemIds["Raita"], optionIds: [], removals: [], quantity: 1, notes: "" }] }, { ipHash: null, now: new Date(Date.now() - 3 * 3600_000) });
+    const c2 = await t.newCustomer({ name: "Ali" });
+    const expired = old.ok ? await runBotTurn({ ...chat, customerId: c2, sessionId: null, customerMessages: [`Hi! Mera order code: ${old.code}`] }, deps) : null;
+    check("An expired code gets the 'expired' reply with the menu link", !!expired && (expired.replyText ?? "").includes("expire") && (expired.replyText ?? "").includes(`/m/${slug}`), expired?.replyText ?? JSON.stringify(old));
+
+    // Stock changes between the draft and the chat → that line is skipped.
+    const fresh = await createCartDraft(admin, { ...base, lines: [{ itemId: t.itemIds["Zinger Burger"], optionIds: [], removals: [], quantity: 1, notes: "" }, { itemId: t.itemIds["Garlic Naan"], optionIds: [], removals: [], quantity: 2, notes: "" }] }, { ipHash: null });
+    await admin.from("branch_item_settings").upsert({ restaurant_id: t.restaurantId, branch_id: t.openBranchId, item_id: t.itemIds["Garlic Naan"], is_available: false });
+    const c3 = await t.newCustomer({ name: "Bilal" });
+    turnNo = 0;
+    step = 0;
+    const r3 = fresh.ok ? await runBotTurn({ ...chat, customerId: c3, sessionId: null, customerMessages: [`Hi! Mera order code: ${fresh.code}`] }, deps) : null;
+    check(
+      "Item out of stock since the draft → skipped and named",
+      !!r3 && r3.session.cart.map((l) => l.name).join() === "Zinger Burger" && (r3.replyText ?? "").includes("2x Garlic Naan abhi available nahi"),
+      r3?.replyText ?? JSON.stringify(fresh),
+    );
+  } catch (err) {
+    check("Menu page flow ran", false, err instanceof Error ? err.stack ?? err.message : String(err));
   }
 }
 
