@@ -25,7 +25,8 @@ export type AuditAction =
   | "whatsapp.disconnected"
   | "whatsapp.bot_resumed"
   | "bot.settings_changed"
-  | "bot.budget_changed";
+  | "bot.budget_changed"
+  | "bot.knowledge_changed";
 // Written inside the database: "restaurant.created", "menu_item.stock_changed",
 // "menu.bulk_price_update", "order.cancelled", "order.edited",
 // "order.blocked_customer_override" (written by the order engine).
