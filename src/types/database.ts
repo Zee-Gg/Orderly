@@ -2711,6 +2711,126 @@ export type Database = {
         Args: { p_category_id: string; p_ids: string[] }
         Returns: undefined
       }
+      report_bot: {
+        Args: {
+          p_branch_id: string
+          p_from: string
+          p_restaurant_id: string
+          p_to: string
+        }
+        Returns: Json
+      }
+      report_branches: {
+        Args: { p_from: string; p_restaurant_id: string; p_to: string }
+        Returns: {
+          branch_id: string
+          cancelled: number
+          name: string
+          orders: number
+          received: number
+          sales: number
+        }[]
+      }
+      report_daily: {
+        Args: {
+          p_branch_id: string
+          p_from: string
+          p_restaurant_id: string
+          p_to: string
+        }
+        Returns: {
+          day: string
+          orders: number
+          sales: number
+        }[]
+      }
+      report_hours: {
+        Args: {
+          p_branch_id: string
+          p_from: string
+          p_restaurant_id: string
+          p_to: string
+        }
+        Returns: {
+          hour: number
+          orders: number
+        }[]
+      }
+      report_items: {
+        Args: {
+          p_branch_id: string
+          p_from: string
+          p_limit?: number
+          p_restaurant_id: string
+          p_to: string
+        }
+        Returns: Json
+      }
+      report_orders_export: {
+        Args: {
+          p_branch_id: string
+          p_from: string
+          p_restaurant_id: string
+          p_to: string
+        }
+        Returns: {
+          branch_name: string
+          channel: string
+          created_at: string
+          customer_name: string
+          delivery_fee: number
+          discount: number
+          items: string
+          order_number: number
+          order_type: string
+          payment_method: string
+          payment_status: string
+          phone_masked: string
+          status: string
+          subtotal: number
+          total: number
+        }[]
+      }
+      report_overview: {
+        Args: {
+          p_branch_id: string
+          p_from: string
+          p_restaurant_id: string
+          p_to: string
+        }
+        Returns: Json
+      }
+      report_riders: {
+        Args: {
+          p_branch_id: string
+          p_from: string
+          p_restaurant_id: string
+          p_to: string
+        }
+        Returns: {
+          avg_minutes: number
+          cash_collected: number
+          deliveries: number
+          failed: number
+          name: string
+          rider_id: string
+        }[]
+      }
+      report_top_customers: {
+        Args: {
+          p_branch_id: string
+          p_from: string
+          p_restaurant_id: string
+          p_to: string
+        }
+        Returns: {
+          customer_id: string
+          name: string
+          orders: number
+          phone_masked: string
+          spent: number
+        }[]
+      }
       rider_login_failed: {
         Args: { p_lock_minutes?: number; p_max?: number; p_phone: string }
         Returns: Json
