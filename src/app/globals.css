@@ -8,6 +8,8 @@
   /* ---------- Fonts (variables set by next/font in layout.tsx) ---------- */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-urdu: var(--font-noto-nastaliq-urdu), "Noto Nastaliq Urdu", serif;
+  /* Urdu pages that also show English (fallback names): Latin in Inter, Urdu in Nastaliq. */
+  --font-mixed-urdu: var(--font-inter), var(--font-noto-nastaliq-urdu), "Noto Nastaliq Urdu", sans-serif;
 
   /* ---------- Brand: "Tandoor" (Tailwind orange) ---------- */
   --color-brand-50: #fff7ed;
@@ -144,4 +146,11 @@
       transition-duration: 0.01ms !important;
     }
   }
+}
+
+/* A closed <dialog> must stay hidden even when Modal/Drawer give it "flex"
+   (unlayered, so it beats Tailwind utilities). Otherwise a mounted, closed
+   modal is an invisible full-screen layer that swallows taps. */
+dialog:not([open]) {
+  display: none;
 }
