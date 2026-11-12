@@ -1,6 +1,6 @@
 import type { OrderSummary } from "../cart";
 import type { MenuIndex } from "../menu-index";
-import type { BotSession, BotStore, BranchInfo, CustomerInfo, RestaurantInfo } from "../types";
+import type { BotMedia, BotSession, BotStore, BranchInfo, CustomerInfo, RestaurantInfo } from "../types";
 
 /**
  * What every tool can see and change during one customer turn. Tools mutate
@@ -21,6 +21,8 @@ export type BotContext = {
     order: { id: string; orderNumber: number } | null;
     handedOff: boolean;
     cancelled: boolean;
+    /** Images, PDFs, location pins, extra texts to send before the reply. */
+    media: BotMedia[];
   };
 };
 
