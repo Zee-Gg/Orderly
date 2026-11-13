@@ -93,7 +93,7 @@ export function createSupabaseBotStore(db: Db): BotStore {
       const r = check(
         await db
           .from("restaurants")
-          .select("id, name, slug, phone, timezone, bot_enabled, high_value_cod_threshold, mention_offer_on_greeting, dine_in_available, payment_methods")
+          .select("id, name, slug, phone, status, timezone, bot_enabled, high_value_cod_threshold, mention_offer_on_greeting, dine_in_available, payment_methods")
           .eq("id", restaurantId)
           .maybeSingle(),
         "restaurant",
@@ -110,6 +110,7 @@ export function createSupabaseBotStore(db: Db): BotStore {
             mentionOfferOnGreeting: r.mention_offer_on_greeting,
             dineInAvailable: r.dine_in_available,
             paymentMethods: (r.payment_methods.length ? r.payment_methods : ["cod"]) as BotPaymentMethod[],
+            suspended: r.status === "suspended",
           }
         : null;
     },
