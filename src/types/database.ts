@@ -963,6 +963,33 @@ export type Database = {
           },
         ]
       }
+      job_runs: {
+        Row: {
+          job: string
+          last_error: string | null
+          last_ok: boolean
+          last_result: Json
+          last_run_at: string
+          run_count: number
+        }
+        Insert: {
+          job: string
+          last_error?: string | null
+          last_ok?: boolean
+          last_result?: Json
+          last_run_at?: string
+          run_count?: number
+        }
+        Update: {
+          job?: string
+          last_error?: string | null
+          last_ok?: boolean
+          last_result?: Json
+          last_run_at?: string
+          run_count?: number
+        }
+        Relationships: []
+      }
       memberships: {
         Row: {
           branch_id: string | null
@@ -1902,6 +1929,78 @@ export type Database = {
           },
         ]
       }
+      plans: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          is_active: boolean
+          max_bot_conversations_per_month: number | null
+          max_branches: number
+          max_orders_per_month: number | null
+          monthly_price: number
+          name: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          max_bot_conversations_per_month?: number | null
+          max_branches?: number
+          max_orders_per_month?: number | null
+          monthly_price: number
+          name: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          is_active?: boolean
+          max_bot_conversations_per_month?: number | null
+          max_branches?: number
+          max_orders_per_month?: number | null
+          monthly_price?: number
+          name?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      platform_settings: {
+        Row: {
+          default_trial_days: number
+          grace_period_days: number
+          id: boolean
+          payment_instructions: string | null
+          sales_whatsapp: string | null
+          support_phone: string | null
+          updated_at: string
+        }
+        Insert: {
+          default_trial_days?: number
+          grace_period_days?: number
+          id?: boolean
+          payment_instructions?: string | null
+          sales_whatsapp?: string | null
+          support_phone?: string | null
+          updated_at?: string
+        }
+        Update: {
+          default_trial_days?: number
+          grace_period_days?: number
+          id?: boolean
+          payment_instructions?: string | null
+          sales_whatsapp?: string | null
+          support_phone?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
@@ -1973,6 +2072,24 @@ export type Database = {
           },
         ]
       }
+      rate_limits: {
+        Row: {
+          count: number
+          key: string
+          window_start: string
+        }
+        Insert: {
+          count?: number
+          key: string
+          window_start: string
+        }
+        Update: {
+          count?: number
+          key?: string
+          window_start?: string
+        }
+        Relationships: []
+      }
       restaurant_faqs: {
         Row: {
           answer: string
@@ -2015,6 +2132,63 @@ export type Database = {
             foreignKeyName: "restaurant_faqs_restaurant_id_fkey"
             columns: ["restaurant_id"]
             isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      restaurant_subscriptions: {
+        Row: {
+          created_at: string
+          current_period_end: string | null
+          current_period_start: string | null
+          notes: string | null
+          past_due_since: string | null
+          plan_id: string | null
+          restaurant_id: string
+          status: string
+          suspended_at: string | null
+          trial_ends_at: string | null
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          notes?: string | null
+          past_due_since?: string | null
+          plan_id?: string | null
+          restaurant_id: string
+          status?: string
+          suspended_at?: string | null
+          trial_ends_at?: string | null
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          current_period_end?: string | null
+          current_period_start?: string | null
+          notes?: string | null
+          past_due_since?: string | null
+          plan_id?: string | null
+          restaurant_id?: string
+          status?: string
+          suspended_at?: string | null
+          trial_ends_at?: string | null
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "restaurant_subscriptions_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "restaurant_subscriptions_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: true
             referencedRelation: "restaurants"
             referencedColumns: ["id"]
           },
@@ -2246,6 +2420,66 @@ export type Database = {
           },
         ]
       }
+      subscription_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          method: string
+          notes: string | null
+          period_end: string
+          period_start: string
+          plan_id: string | null
+          receipt_number: number
+          recorded_by: string | null
+          reference: string | null
+          restaurant_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          method: string
+          notes?: string | null
+          period_end: string
+          period_start: string
+          plan_id?: string | null
+          receipt_number?: never
+          recorded_by?: string | null
+          reference?: string | null
+          restaurant_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          method?: string
+          notes?: string | null
+          period_end?: string
+          period_start?: string
+          plan_id?: string | null
+          receipt_number?: never
+          recorded_by?: string | null
+          reference?: string | null
+          restaurant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscription_payments_plan_id_fkey"
+            columns: ["plan_id"]
+            isOneToOne: false
+            referencedRelation: "plans"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "subscription_payments_restaurant_id_fkey"
+            columns: ["restaurant_id"]
+            isOneToOne: false
+            referencedRelation: "restaurants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       whatsapp_accounts: {
         Row: {
           access_token_encrypted: string
@@ -2323,6 +2557,7 @@ export type Database = {
           resolved_at: string | null
           restaurant_id: string
           status: Database["public"]["Enums"]["wa_conversation_status"]
+          suspended_notice_at: string | null
           tags: string[]
           unread_count: number
           updated_at: string
@@ -2347,6 +2582,7 @@ export type Database = {
           resolved_at?: string | null
           restaurant_id: string
           status?: Database["public"]["Enums"]["wa_conversation_status"]
+          suspended_notice_at?: string | null
           tags?: string[]
           unread_count?: number
           updated_at?: string
@@ -2371,6 +2607,7 @@ export type Database = {
           resolved_at?: string | null
           restaurant_id?: string
           status?: Database["public"]["Enums"]["wa_conversation_status"]
+          suspended_notice_at?: string | null
           tags?: string[]
           unread_count?: number
           updated_at?: string
@@ -2612,6 +2849,41 @@ export type Database = {
       }
     }
     Functions: {
+      admin_create_restaurant: {
+        Args: {
+          p_branch_name: string
+          p_city: string
+          p_created_by: string
+          p_name: string
+          p_owner_id: string
+          p_phone: string
+          p_plan_id: string
+          p_slug: string
+          p_trial_days: number
+        }
+        Returns: string
+      }
+      admin_record_subscription_payment: {
+        Args: {
+          p_amount: number
+          p_method: string
+          p_notes: string
+          p_recorded_by: string
+          p_reference: string
+          p_restaurant_id: string
+        }
+        Returns: string
+      }
+      admin_restaurant_usage: {
+        Args: { p_month_start: string }
+        Returns: {
+          bot_conversations_this_month: number
+          branches: number
+          last_order_at: string
+          orders_this_month: number
+          restaurant_id: string
+        }[]
+      }
       ai_usage_summary: {
         Args: { p_restaurant_id?: string; p_since: string }
         Returns: {
@@ -2667,6 +2939,10 @@ export type Database = {
         }
         Returns: string
       }
+      delete_customer_data: {
+        Args: { p_customer_id: string; p_restaurant_id: string }
+        Returns: Json
+      }
       edit_order: { Args: { p: Json }; Returns: Json }
       get_public_menu: {
         Args: { p_branch_id: string; p_restaurant_slug: string }
@@ -2678,6 +2954,19 @@ export type Database = {
       }
       inbox_auto_resolve: { Args: { p_restaurant_id: string }; Returns: number }
       is_slug_available: { Args: { p_slug: string }; Returns: boolean }
+      rate_limit_hit: {
+        Args: { p_key: string; p_max: number; p_window_seconds: number }
+        Returns: boolean
+      }
+      record_app_job: {
+        Args: {
+          p_error?: string
+          p_job: string
+          p_ok: boolean
+          p_result?: Json
+        }
+        Returns: undefined
+      }
       record_cod_collection: {
         Args: {
           p_actor_user_id: string
@@ -2831,10 +3120,15 @@ export type Database = {
           spent: number
         }[]
       }
+      restaurant_usage: {
+        Args: { p_month_start: string; p_restaurant_id: string }
+        Returns: Json
+      }
       rider_login_failed: {
         Args: { p_lock_minutes?: number; p_max?: number; p_phone: string }
         Returns: Json
       }
+      run_maintenance_jobs: { Args: never; Returns: Json }
       save_menu_item: {
         Args: { p_item: Json; p_restaurant_id: string }
         Returns: string
