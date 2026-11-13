@@ -376,5 +376,16 @@ Migration `20261122100000_reports.sql`. No new tables: read-only RPCs (security 
 - Indexes: `orders (branch_id, created_at)`, `orders (rider_id, created_at) where rider_id is not null`, `bot_sessions (restaurant_id, created_at)`. Add daily rollups only if these get slow.
 - Exports are logged in `audit_logs` (`report.exported`).
 
+## Phase 12 — Platform, subscriptions, production ✅
+Migrations `20261123100000_platform.sql`, `…100100_app_jobs.sql`, `…100200_security_fixes.sql`, `…100300_fk_indexes.sql`. One Supabase project for dev + production.
+- `plans`: id, name (unique), description, monthly_price (paisa), max_branches, max_orders_per_month (null = unlimited), max_bot_conversations_per_month (null = unlimited), is_active, sort_order. Anyone reads active plans (landing page); writes: service role.
+- `platform_settings` (one row, id = true): default_trial_days (14), grace_period_days (5), payment_instructions, sales_whatsapp (digits), support_phone. Signed-in users read; anon reads sales_whatsapp/support_phone.
+- `restaurant_subscriptions` (PK restaurant_id): plan_id, status (trial | active | past_due | suspended | cancelled), trial_ends_at, current_period_start/end, past_due_since, suspended_at, notes (super admin). Owner reads (not notes). Trigger on `restaurants` insert creates the trial; trigger syncs `restaurants.status`/`trial_ends_at`.
+- `subscription_payments`: restaurant_id, plan_id, amount (paisa), method (bank_transfer | jazzcash | easypaisa | cash), reference, notes, period_start/end, receipt_number (identity), recorded_by. Owner reads.
+- `rate_limits` (key, window_start, count) — server only. `job_runs` (job, last_run_at, last_ok, last_result, last_error, run_count) — super admin reads.
+- `whatsapp_conversations.suspended_notice_at` (one suspension reply per chat).
+- RPCs (service role): `admin_record_subscription_payment`, `admin_restaurant_usage`, `admin_create_restaurant`, `rate_limit_hit`, `run_maintenance_jobs`, `record_app_job`, `delete_customer_data`. Signed in: `restaurant_usage` (owner/manager). pg_cron: `orderly-inbox-auto-resolve`, `orderly-abandon-bot-sessions`, `orderly-cleanup-cart-drafts`, `orderly-subscription-sweep`.
+- RLS: rider + staff SELECT policies on orders/order_items/order_item_modifiers/rider_profiles merged into one per table; `get_public_menu` closed to the API.
+
 ## Out of MVP scope (leave room, don't build)
 Inventory, recipe costing, accounting, payroll, loyalty points, marketing campaigns, foodpanda integration, online payment gateways.
