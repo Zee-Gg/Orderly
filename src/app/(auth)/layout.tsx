@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { Utensils } from "lucide-react";
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
@@ -15,6 +16,17 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
       <main className="w-full max-w-md rounded-panel border border-line bg-surface p-6 shadow-card sm:p-8">
         {children}
       </main>
+      <nav aria-label="Legal" className="mt-6 flex gap-4 text-sm text-muted">
+        <Link href="/privacy" className="flex min-h-touch items-center underline">
+          Privacy
+        </Link>
+        <Link href="/terms" className="flex min-h-touch items-center underline">
+          Terms
+        </Link>
+        <Link href="/contact" className="flex min-h-touch items-center underline">
+          Contact
+        </Link>
+      </nav>
     </div>
   );
 }
