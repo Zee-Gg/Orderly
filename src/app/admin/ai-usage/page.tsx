@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowLeft } from "lucide-react";
 import { SkeletonList } from "@/components/ui/skeleton";
+import { AdminNav } from "@/components/admin/admin-nav";
 import { SimplePage } from "@/components/shell/simple-page";
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { activeProvider, modelFor } from "@/lib/bot/config";
@@ -57,6 +58,7 @@ async function Usage() {
         </Link>
       }
     >
+      <AdminNav />
       <AiUsageTable rows={rows} />
     </SimplePage>
   );
