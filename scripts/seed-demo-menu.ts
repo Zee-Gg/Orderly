@@ -10,8 +10,10 @@ import { createClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
 import { DEMO_GROUPS, DEMO_MENU } from "../src/lib/menu/demo-menu";
 import { seedDemoKnowledge, seedDemoMenu } from "../src/lib/menu/demo-menu-seed";
+import { requireDemoDataAllowed } from "./lib/demo-guard";
 
 process.loadEnvFile(".env.local");
+requireDemoDataAllowed("seed:menu");
 const slug = process.argv[2];
 if (!slug) {
   console.error("Usage: npx tsx scripts/seed-demo-menu.ts <restaurant-slug>");
