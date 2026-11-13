@@ -1,3 +1,4 @@
+import { scrubText } from "@/lib/monitoring/scrub";
 import "server-only";
 import { createSupabaseBotStore } from "@/lib/bot/store";
 import { createSupabaseChannelStore } from "@/lib/bot/whatsapp/channel";
@@ -50,7 +51,7 @@ export function whatsappBotHook(): InboundHook {
         }
       },
     },
-    log: (step, details) => console.log(`[bot] ${step}`, details ? JSON.stringify(details) : ""),
+    log: (step, details) => console.log(`[bot] ${step}`, details ? scrubText(JSON.stringify(details)) : ""),
   });
   return (input) => pipeline.handleInbound(input);
 }
