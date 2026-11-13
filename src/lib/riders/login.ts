@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { ActionResult } from "@/lib/action-result";
 import { normalizePhone } from "@/lib/orders/phone";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { rateLimitByIp, TOO_MANY } from "@/lib/security/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 import { LOGIN_LOCK_MINUTES, LOGIN_MAX_FAILURES, lockedFor, pinSchema, riderEmail } from "./core";
 
@@ -18,6 +19,7 @@ const schema = z.object({ phone: z.string().trim().min(5).max(20), pin: pinSchem
 export async function riderLoginAction(_prev: ActionResult | null, formData: FormData): Promise<ActionResult> {
   const parsed = schema.safeParse({ phone: formData.get("phone"), pin: formData.get("pin") });
   if (!parsed.success) return { ok: false, error: "Enter your phone number and 6-digit PIN." };
+  if (!(await rateLimitByIp("riderLogin"))) return { ok: false, error: TOO_MANY };
   const phone = normalizePhone(parsed.data.phone);
   if (!phone) return { ok: false, error: "Phone number is not correct.", fieldErrors: { phone: "Like 0300 1234567" } };
 
