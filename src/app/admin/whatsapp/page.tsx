@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { ArrowLeft } from "lucide-react";
 import { SkeletonList } from "@/components/ui/skeleton";
+import { AdminNav } from "@/components/admin/admin-nav";
 import { SimplePage } from "@/components/shell/simple-page";
 import { requireSuperAdmin } from "@/lib/auth/session";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -53,6 +54,7 @@ async function Connections() {
         </Link>
       }
     >
+      <AdminNav />
       <WhatsAppAdmin rows={rows} />
     </SimplePage>
   );
