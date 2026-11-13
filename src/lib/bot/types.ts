@@ -125,6 +125,8 @@ export type RestaurantInfo = {
   mentionOfferOnGreeting: boolean;
   dineInAvailable: boolean;
   paymentMethods: BotPaymentMethod[];
+  /** Subscription unpaid (Phase 12): the bot answers each chat once, then stays quiet. */
+  suspended?: boolean;
 };
 
 export type BranchInfo = {
