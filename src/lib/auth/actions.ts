@@ -4,6 +4,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { failure, zodFailure, type ActionResult } from "@/lib/action-result";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { rateLimitByIp, TOO_MANY } from "@/lib/security/rate-limit";
 import { createClient } from "@/lib/supabase/server";
 import {
   forgotPasswordSchema,
@@ -49,6 +50,7 @@ export async function signIn(_prev: ActionResult | null, formData: FormData): Pr
     password: formData.get("password"),
   });
   if (!parsed.success) return zodFailure(parsed.error);
+  if (!(await rateLimitByIp("login"))) return { ok: false, error: TOO_MANY };
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword(parsed.data);
@@ -64,6 +66,7 @@ export async function signUp(_prev: ActionResult | null, formData: FormData): Pr
     password: formData.get("password"),
   });
   if (!parsed.success) return zodFailure(parsed.error);
+  if (!(await rateLimitByIp("signup"))) return { ok: false, error: TOO_MANY };
 
   const supabase = await createClient();
   const { data, error } = await supabase.auth.signUp({
@@ -87,6 +90,7 @@ export async function requestPasswordReset(
 ): Promise<ActionResult> {
   const parsed = forgotPasswordSchema.safeParse({ email: formData.get("email") });
   if (!parsed.success) return zodFailure(parsed.error);
+  if (!(await rateLimitByIp("passwordReset"))) return { ok: false, error: TOO_MANY };
 
   const supabase = await createClient();
   const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
