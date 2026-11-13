@@ -82,9 +82,18 @@ export const PERMISSIONS = {
   "staff.view": MANAGEMENT,
   "staff.manage": ["owner"],
   "audit.view": MANAGEMENT,
+  /** Plan, payments, receipts (/settings/billing). Works while suspended. */
+  "billing.view": ["owner"],
+  /** Download all restaurant data as CSV (/settings/data). */
+  "data.export": ["owner"],
+  /** Delete a customer's personal data (privacy request). */
+  "customers.delete": ["owner"],
 } as const satisfies Record<string, readonly Role[]>;
 
 export type Action = keyof typeof PERMISSIONS;
+
+/** What still works while the restaurant is suspended (unpaid). */
+export const SUSPENDED_ALLOWED: readonly Action[] = ["billing.view"];
 
 export function can(role: Role | null | undefined, action: Action): boolean {
   if (!role) return false;
