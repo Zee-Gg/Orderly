@@ -1,14 +1,21 @@
 import { after, type NextRequest } from "next/server";
+import { clientIp } from "@/lib/menu-page/request";
+import { rateLimit } from "@/lib/security/rate-limit";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Json } from "@/types/database";
 import { consoleProcessLog, processWebhookPayload } from "@/lib/whatsapp/process";
 import { whatsappBotHook, whatsappDeps } from "@/lib/whatsapp/server";
 import { safeEqual, verifyWebhookSignature } from "@/lib/whatsapp/signature";
 
+/** The bot replies inside after(): batching wait + AI + voice transcription. */
+export const maxDuration = 60;
+
 /**
  * WhatsApp Cloud API webhook. Public (no session): security is the
  * X-Hub-Signature-256 check. Restaurant = the receiving phone_number_id.
  */
+
+const MAX_BODY_BYTES = 1024 * 1024;
 
 // Meta's one-time "Verify and save" handshake.
 export async function GET(request: NextRequest) {
@@ -34,7 +41,10 @@ export async function POST(request: NextRequest) {
     return new Response("Not configured", { status: 500 });
   }
 
+  // Meta's payloads are small (media is fetched separately): refuse huge bodies.
+  if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY_BYTES) return new Response("Too large", { status: 413 });
   const rawBody = await request.text();
+  if (rawBody.length > MAX_BODY_BYTES) return new Response("Too large", { status: 413 });
   console.log("[whatsapp] received", JSON.stringify({ bytes: rawBody.length }));
   const signature = request.headers.get("x-hub-signature-256");
   if (!verifyWebhookSignature(rawBody, signature, appSecret)) {
@@ -42,6 +52,8 @@ export async function POST(request: NextRequest) {
       "[whatsapp] signature FAILED",
       signature ? "(check WHATSAPP_APP_SECRET = Meta App settings → Basic → App secret)" : "(no X-Hub-Signature-256 header)",
     );
+    // Someone guessing signatures: slow them down (Meta itself never fails this).
+    if (!(await rateLimit("webhookBadSignature", clientIp(request.headers)))) return new Response("Too many requests", { status: 429 });
     return new Response("Invalid signature", { status: 401 });
   }
   console.log("[whatsapp] signature ok");
