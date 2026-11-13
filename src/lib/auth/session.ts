@@ -6,7 +6,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import type { Tables } from "@/types/database";
 import { ALL_BRANCHES, BRANCH_COOKIE, RESTAURANT_COOKIE } from "./cookies";
-import { can, homePathForRole, type Action, type Role } from "./permissions";
+import { can, homePathForRole, SUSPENDED_ALLOWED, type Action, type Role } from "./permissions";
 
 /**
  * Data access layer for "who is this and what can they do".
@@ -197,6 +197,12 @@ export async function requirePermission(
   options?: { onDenied?: "throw" | "redirect" },
 ): Promise<CurrentContext> {
   const ctx = await requireMembership();
+  // Suspended (unpaid) restaurant: only the billing page works. Server-side,
+  // so server actions and route handlers are blocked too. Nothing is deleted.
+  if (ctx.restaurant.status === "suspended" && !SUSPENDED_ALLOWED.includes(action) && !ctx.user.profile.is_super_admin) {
+    if (options?.onDenied === "redirect") redirect("/suspended");
+    throw new PermissionError(action);
+  }
   if (!can(ctx.role, action)) {
     if (options?.onDenied === "redirect") redirect(homePathForRole(ctx.role));
     throw new PermissionError(action);
