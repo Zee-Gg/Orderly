@@ -12,12 +12,15 @@ import { getMemberships, requireMembership } from "@/lib/auth/session";
 import { getLiveSnapshot, scopeBranchIds } from "@/lib/orders/queries";
 import { DEFAULT_TIMEZONE } from "@/lib/time";
 import { LiveAlerts } from "@/components/orders/live-alerts";
+import { OwnerNotices } from "@/components/billing/owner-notices";
 import { OrdersLiveProvider } from "@/components/orders/live-provider";
 
 async function DashboardShell({ children }: { children: React.ReactNode }) {
   const ctx = await requireMembership();
   // Kitchen and rider accounts have their own screens.
   if (!DASHBOARD_ROLES.includes(ctx.role)) redirect(homePathForRole(ctx.role));
+  // Suspended (unpaid): only the notice + billing page (see requirePermission).
+  if (ctx.restaurant.status === "suspended" && !ctx.user.profile.is_super_admin) redirect("/suspended");
   const [memberships, snapshot] = await Promise.all([getMemberships(), getLiveSnapshot(ctx)]);
 
   const name = ctx.user.profile.full_name || ctx.user.email || "You";
@@ -49,6 +52,9 @@ async function DashboardShell({ children }: { children: React.ReactNode }) {
         <div className="flex flex-col gap-3 px-4 pt-3 empty:hidden lg:px-8">
           <OfflineBanner />
           <LiveAlerts />
+          <Suspense fallback={null}>
+            <OwnerNotices ctx={ctx} />
+          </Suspense>
         </div>
         <main className="px-4 pt-6 pb-[calc(var(--spacing-touch-lg)+2rem+env(safe-area-inset-bottom))] lg:px-8 lg:pb-10">
           {children}
