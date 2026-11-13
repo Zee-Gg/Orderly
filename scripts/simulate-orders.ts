@@ -18,8 +18,10 @@ import type { OrderStatus } from "../src/lib/orders/constants";
 import { createOrder } from "../src/lib/orders/engine";
 import type { CartLineInput } from "../src/lib/orders/schemas";
 import type { Database } from "../src/types/database";
+import { requireDemoDataAllowed } from "./lib/demo-guard";
 
 process.loadEnvFile(".env.local");
+requireDemoDataAllowed("simulate:orders");
 
 function arg(name: string, fallback: string) {
   const i = process.argv.indexOf(`--${name}`);
