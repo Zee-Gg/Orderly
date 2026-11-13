@@ -27,7 +27,15 @@ export type AuditAction =
   | "bot.settings_changed"
   | "bot.budget_changed"
   | "bot.knowledge_changed"
-  | "report.exported";
+  | "report.exported"
+  | "data.exported"
+  | "customer.deleted"
+  | "support.viewed"
+  | "subscription.changed"
+  | "subscription.payment_recorded"
+  | "restaurant.created_for_client"
+  | "platform.settings_changed"
+  | "plan.saved";
 // Written inside the database: "restaurant.created", "menu_item.stock_changed",
 // "menu.bulk_price_update", "order.cancelled", "order.edited",
 // "order.blocked_customer_override" (written by the order engine).
