@@ -25,8 +25,10 @@ export const API_KEY_ENV: Record<AiProvider, string> = {
 };
 
 /**
- * USD per 1 million tokens. PLACEHOLDERS: fill in from each provider's
- * pricing page. Free tier = 0.
+ * USD per 1 million tokens.
+ * >>> TODO BEFORE LAUNCH: FILL IN from your provider's PAID pricing page. <<<
+ * These are 0 (= free tier), so /admin/ai-usage shows $0 and the monthly AI
+ * budget never triggers until you fill them in.
  */
 export const COST_PER_MTOK: Record<AiProvider, { input: number; output: number; cacheRead: number; cacheWrite: number }> = {
   google: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -90,10 +92,28 @@ export const TRANSCRIBE_MODELS: Record<TranscribeProvider, string> = {
   google: "gemini-3.5-flash-lite",
 };
 
-/** USD per audio minute. PLACEHOLDERS: fill in from each provider's pricing page. Free tier = 0. */
+/** USD per audio minute. >>> TODO BEFORE LAUNCH: FILL IN from the PAID pricing page (0 = free tier). <<< */
 export const TRANSCRIBE_COST_PER_MINUTE: Record<TranscribeProvider, number> = { groq: 0, google: 0 };
 
 export const TRANSCRIBE_LIMITS = {
   timeoutMs: 30_000,
   rateLimitRetryMs: 2_000,
 } as const;
+
+/**
+ * Production must run on a PAID AI key: the free tier rate-limits a busy
+ * restaurant within minutes. Set AI_PROVIDER_TIER=paid once the key is on a
+ * paid plan. Returns the warning shown on /admin/health, or null.
+ */
+export function aiTierWarning(env: Record<string, string | undefined> = process.env): string | null {
+  const production = env.NODE_ENV === "production" && env.VERCEL_ENV !== "preview";
+  const paid = env.AI_PROVIDER_TIER === "paid";
+  const ratesMissing = Object.values(COST_PER_MTOK[activeProvider(env)]).every((n) => n === 0);
+  if (production && !paid) {
+    return `The AI provider (${activeProvider(env)}) is not marked as paid. Free tiers rate-limit real restaurants — use a paid key and set AI_PROVIDER_TIER=paid.`;
+  }
+  if (production && ratesMissing) {
+    return "AI cost rates are 0 in src/lib/bot/config.ts — fill them in so AI costs and budgets are correct.";
+  }
+  return null;
+}
