@@ -14,8 +14,10 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "../src/types/database";
 import { createSender, isInside24hWindow, type SendResult } from "../src/lib/whatsapp/send";
 import { createSupabaseStore } from "../src/lib/whatsapp/store";
+import { requireDemoDataAllowed } from "./lib/demo-guard";
 
 process.loadEnvFile(".env.local");
+requireDemoDataAllowed("whatsapp:send-test");
 
 const args = process.argv.slice(2);
 const flag = (name: string) => {
