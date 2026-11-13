@@ -21,8 +21,10 @@ import type { Database, Json } from "../src/types/database";
 import { encryptToken } from "../src/lib/whatsapp/crypto";
 import { signPayload } from "../src/lib/whatsapp/signature";
 import { runBotConversations } from "./lib/whatsapp-conversation";
+import { requireDemoDataAllowed } from "./lib/demo-guard";
 
 process.loadEnvFile(".env.local");
+requireDemoDataAllowed("whatsapp:fake");
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const appSecret = process.env.WHATSAPP_APP_SECRET;
