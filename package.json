@@ -10,6 +10,7 @@
     "db:types": "npx supabase gen types typescript --remote > src/types/database.ts",
     "db:push": "npx supabase db push --remote",
     "seed:menu": "tsx scripts/seed-demo-menu.ts",
+    "seed:plans": "tsx scripts/seed-plans.ts",
     "simulate:orders": "tsx scripts/simulate-orders.ts",
     "whatsapp:fake": "tsx scripts/fake-whatsapp-webhook.ts",
     "whatsapp:send-test": "tsx scripts/whatsapp-send-test.ts"
@@ -21,6 +22,7 @@
     "@dnd-kit/core": "^6.3.1",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
+    "@sentry/nextjs": "^10.78.0",
     "@supabase/ssr": "^0.12.7",
     "@supabase/supabase-js": "^2.119.0",
     "ai": "^7.0.166",
