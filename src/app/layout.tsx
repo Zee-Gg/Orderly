@@ -21,6 +21,9 @@ const notoNastaliqUrdu = Noto_Nastaliq_Urdu({
 export const metadata: Metadata = {
   title: { default: "Orderly", template: "%s · Orderly" },
   description: "WhatsApp ordering for restaurants",
+  applicationName: "Orderly",
+  appleWebApp: { capable: true, title: "Orderly", statusBarStyle: "default" },
+  icons: { icon: "/favicon.ico", apple: "/icons/apple-touch-icon.png" },
 };
 
 export const viewport: Viewport = {
