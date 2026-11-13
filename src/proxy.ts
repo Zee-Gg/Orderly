@@ -1,4 +1,4 @@
-import type { NextRequest } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import { redirectWithCookies, updateSession } from "@/lib/supabase/proxy";
 
 /** Pages for signed-out visitors. Signed-in users are sent on to their home. */
@@ -10,8 +10,20 @@ const PUBLIC_PREFIXES = [
   "/auth", // callback + continue
   "/reset-password", // checks its own recovery session
   "/m", // public customer menu
-  "/dev", // dev-only component gallery (404 in production)
+  "/dev", // dev-only tools (blocked below in production)
+  "/privacy",
+  "/terms",
+  "/contact",
+  "/api/health", // uptime monitor
+  "/api/cron", // Vercel Cron (checks CRON_SECRET itself)
+  "/manifest.webmanifest",
 ];
+
+/** Dev tools (playground, voice tests, component gallery) never exist in production. */
+const DEV_PREFIXES = ["/dev", "/api/dev"];
+function devToolsOn() {
+  return process.env.NODE_ENV !== "production" || process.env.ENABLE_DEV_TOOLS === "1";
+}
 
 function matches(pathname: string, prefixes: string[]) {
   return prefixes.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -24,8 +36,18 @@ function matches(pathname: string, prefixes: string[]) {
  * and RLS protects the data.
  */
 export async function proxy(request: NextRequest) {
+  const { pathname: path } = request.nextUrl;
+  if (!devToolsOn() && matches(path, DEV_PREFIXES)) {
+    return new NextResponse("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+  }
+
   const { response, userId } = await updateSession(request);
   const { pathname, search } = request.nextUrl;
+
+  // "/" is the public landing page; signed-in users go to their dashboard.
+  if (userId && pathname === "/") {
+    return redirectWithCookies(request, response, "/auth/continue");
+  }
 
   // Riders log in with phone + PIN, not email.
   if (!userId && matches(pathname, ["/rider"]) && pathname !== "/rider/login") {
