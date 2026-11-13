@@ -1,3 +1,4 @@
+import { scrubText } from "@/lib/monitoring/scrub";
 import { normalizePhone } from "@/lib/orders/phone";
 import { parseWebhookPayload } from "./payload";
 import { MEDIA_TYPES, storeInboundMedia } from "./media";
@@ -24,7 +25,8 @@ export type ProcessLog = (step: string, details?: Record<string, unknown>) => vo
 
 /** Step-by-step console logs (no message text, no tokens). Tests pass nothing → silent. */
 export const consoleProcessLog: ProcessLog = (step, details) =>
-  console.log(`[whatsapp] ${step}`, details ? JSON.stringify(details) : "");
+  // Masked: logs never show phone numbers, emails or tokens in full.
+  console.log(`[whatsapp] ${step}`, details ? scrubText(JSON.stringify(details)) : "");
 
 /** The AI bot (Phase 7A-2): called once per conversation with its newest saved message. */
 export type InboundHook = (input: {
