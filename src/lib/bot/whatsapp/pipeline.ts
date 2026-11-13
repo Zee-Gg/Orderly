@@ -159,6 +159,18 @@ export function createBotPipeline(deps: PipelineDeps) {
     // Claim the batch first, so waiting handlers see it is taken.
     await channel.markHandled(pending.map((m) => m.id));
 
+    // Suspended (unpaid) restaurant: one fixed reply per chat, then silence. No AI.
+    if (restaurant.suspended) {
+      if (await channel.claimSuspendedNotice(conversationId)) {
+        const phone = restaurant.phone ? ` ${restaurant.phone}` : " the restaurant";
+        await sender.sendText(restaurantId, conv.waId, `Online ordering abhi available nahi. Please call:${phone}`);
+        log("restaurant suspended: sent the one-time notice");
+      } else {
+        log("restaurant suspended: notice already sent, staying quiet");
+      }
+      return true;
+    }
+
     if (!restaurant.botEnabled || !conv.botEnabled) {
       log("bot skipped: switched off for this restaurant or chat is with staff", { botEnabled: restaurant.botEnabled, chatBot: conv.botEnabled });
       return true;
