@@ -11,6 +11,7 @@
     "db:push": "npx supabase db push --remote",
     "seed:menu": "tsx scripts/seed-demo-menu.ts",
     "seed:plans": "tsx scripts/seed-plans.ts",
+    "reset:launch": "tsx scripts/reset-for-launch.ts",
     "simulate:orders": "tsx scripts/simulate-orders.ts",
     "whatsapp:fake": "tsx scripts/fake-whatsapp-webhook.ts",
     "whatsapp:send-test": "tsx scripts/whatsapp-send-test.ts"
