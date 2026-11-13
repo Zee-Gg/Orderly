@@ -7,6 +7,8 @@ import { t } from "@/lib/bot/texts";
 import { handleVoice, VOICE_MARKER } from "@/lib/bot/voice/handle";
 import { createAdminClient } from "@/lib/supabase/admin";
 
+export const maxDuration = 60;
+
 /**
  * Bot playground mic (development only + super admin). The SAME voice path as
  * WhatsApp: duration check → transcription → bot. A route (not a server
