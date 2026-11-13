@@ -9,7 +9,7 @@ Do these in order. Don't skip any.
 
 ## 2. Wipe test data
 - [ ] **Back up first**: Supabase → Database → Backups (latest backup date is today), and `npx supabase db dump --remote --data-only -f before-reset.sql`.
-- [ ] Run the **reset-for-launch script** (to be created separately).
+- [ ] Run the **reset-for-launch script**: `npm run reset:launch -- --admin-email <your super admin email> --dry-run` first, then without `--dry-run` (it backs up to `backups/`, shows a dry run, and asks for the project ref + `RESET`).
 - [ ] Confirm the database is clean: no test restaurants, orders, customers, chats, AI logs, menu carts; only your super admin account (and plans + platform settings) remain. Storage buckets (`whatsapp-media`, `bot-media`, menu images) have no test files.
 - [ ] `npm run seed:plans` (only creates plans if none exist), then check prices in `/admin/settings`.
 
