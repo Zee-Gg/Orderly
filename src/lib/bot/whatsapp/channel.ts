@@ -42,6 +42,8 @@ export interface BotChannelStore {
   claimLock(conversationId: string, ttlSeconds: number): Promise<boolean>;
   releaseLock(conversationId: string): Promise<void>;
   setMuted(conversationId: string, untilIso: string): Promise<void>;
+  /** Suspended restaurant: true only the FIRST time for this chat (atomic). */
+  claimSuspendedNotice(conversationId: string): Promise<boolean>;
   /** bot_enabled = false + needs_staff + reason → "Needs staff" in the inbox (+ a system line). */
   setHandoff(restaurantId: string, conversationId: string, reason: string): Promise<void>;
   /** A grey line in the inbox chat (never sent to WhatsApp). */
@@ -151,6 +153,19 @@ export function createSupabaseChannelStore(db: Db): BotChannelStore {
 
     async setMuted(conversationId, untilIso) {
       check(await db.from("whatsapp_conversations").update({ bot_muted_until: untilIso }).eq("id", conversationId), "mute");
+    },
+
+    async claimSuspendedNotice(conversationId) {
+      const rows = check(
+        await db
+          .from("whatsapp_conversations")
+          .update({ suspended_notice_at: new Date().toISOString() })
+          .eq("id", conversationId)
+          .is("suspended_notice_at", null)
+          .select("id"),
+        "suspended notice",
+      );
+      return (rows ?? []).length > 0;
     },
 
     async setHandoff(restaurantId, conversationId, reason) {
