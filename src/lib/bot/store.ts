@@ -51,6 +51,7 @@ function toSession(r: SessionRow): BotSession {
     cartDraftId: r.cart_draft_id,
     pendingCartCode: r.pending_cart_code,
     deliveryZone: (r.delivery_zone as unknown as BotSession["deliveryZone"]) ?? null,
+    locationRequested: r.location_requested ?? false,
   };
 }
 
@@ -242,6 +243,7 @@ export function createSupabaseBotStore(db: Db): BotStore {
             cart_draft_id: s.cartDraftId,
             pending_cart_code: s.pendingCartCode,
             delivery_zone: s.deliveryZone as unknown as Json,
+            location_requested: s.locationRequested,
           })
           .eq("id", s.id)
           .eq("restaurant_id", s.restaurantId),
