@@ -376,7 +376,7 @@ export async function runBotTurn(input: BotTurnInput, deps: AgentDeps): Promise<
     const r = await runTool(ctx, direct.tool, direct.input);
     toolCalls.push({ tool: direct.tool, input: direct.input, output: r, ms: 0 });
   }
-  // A location pin is the delivery location (the bot may still ask for a landmark).
+  // A location pin is the delivery location: the address step is complete (no landmark needed).
   if (input.location) {
     s.orderType = "delivery";
     s.address = {
