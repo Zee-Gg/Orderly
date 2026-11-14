@@ -193,25 +193,24 @@ describe("update / remove / view cart", () => {
 });
 
 describe("checkout tools", () => {
-  it("delivery address needs a landmark or a location pin", async () => {
+  it("a delivery address with detail is accepted without a landmark", async () => {
     const s = await setup();
-    expect(await s.run("set_delivery_address", { address_text: "Flat 3, Block B, Gulshan" })).toMatchObject({
-      ok: false,
-      error: "LANDMARK_REQUIRED",
-    });
+    expect(await s.run("set_delivery_address", { address_text: "Flat 3, Block B, Gulshan" })).toMatchObject({ ok: true });
     expect(s.ctx.session.orderType).toBe("delivery");
-    // Part of the address is not a landmark.
-    expect(await s.run("set_delivery_address", { address_text: "Flat 3, Block B, Gulshan", landmark: "Block B" })).toMatchObject({
-      ok: false,
-      error: "LANDMARK_REQUIRED",
-    });
-    expect(await s.run("set_delivery_address", { address_text: "Flat 3, Block B", area: "Gulshan", landmark: "Gulshan" })).toMatchObject({
-      ok: false,
-      error: "LANDMARK_REQUIRED",
-    });
-    expect(await s.run("set_delivery_address", { address_text: "Flat 3, Block B, Gulshan", landmark: "near Imtiaz" })).toMatchObject({ ok: true });
+    expect(s.ctx.session.locationRequested).toBe(false);
     const pin = await setup();
     expect(await pin.run("set_delivery_address", { address_text: "House 9", latitude: 24.8, longitude: 67.0 })).toMatchObject({ ok: true });
+  });
+
+  it("only an area → asks ONCE for the location, then accepts a rough address", async () => {
+    const s = await setup();
+    expect(await s.run("set_delivery_address", { address_text: "Gulshan", area: "Gulshan" })).toMatchObject({
+      ok: false,
+      error: "ASK_FOR_LOCATION",
+    });
+    expect(s.ctx.session.locationRequested).toBe(true);
+    // The customer still can't give more: accepted, never asked again.
+    expect(await s.run("set_delivery_address", { address_text: "Gulshan", area: "Gulshan" })).toMatchObject({ ok: true });
   });
 
   it("validates payment method and name", async () => {
