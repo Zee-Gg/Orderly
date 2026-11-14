@@ -241,6 +241,7 @@ export type Database = {
           language: string
           last_activity_at: string
           latitude: number | null
+          location_requested: boolean
           longitude: number | null
           order_id: string | null
           order_type: string | null
@@ -270,6 +271,7 @@ export type Database = {
           language?: string
           last_activity_at?: string
           latitude?: number | null
+          location_requested?: boolean
           longitude?: number | null
           order_id?: string | null
           order_type?: string | null
@@ -299,6 +301,7 @@ export type Database = {
           language?: string
           last_activity_at?: string
           latitude?: number | null
+          location_requested?: boolean
           longitude?: number | null
           order_id?: string | null
           order_type?: string | null
