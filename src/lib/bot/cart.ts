@@ -118,10 +118,44 @@ export function missingFields(session: BotSession, customer: CustomerInfo | null
   return out;
 }
 
+/**
+ * Delivery address is complete when there is a location pin, an address with
+ * some detail (house/flat/street/landmark — not just the area name), or — after
+ * the bot has already asked once for the location — whatever the customer gave.
+ * A landmark is never required: asking for it again and again annoys customers.
+ */
 export function hasAddress(session: BotSession): boolean {
   const a = session.address;
-  const pin = a.latitude != null && a.longitude != null;
-  return (!!a.text?.trim() && !!a.landmark?.trim()) || pin;
+  if (hasPin(session)) return true;
+  if (!a.text?.trim()) return false;
+  return isUsableAddress(a.text, [a.area, session.deliveryZone?.name], a.landmark) || session.locationRequested;
+}
+
+const hasPin = (s: BotSession) => s.address.latitude != null && s.address.longitude != null;
+
+/** Accepted only because the customer couldn't give more after one location request. Riders should call. */
+export function isRoughAddress(session: BotSession): boolean {
+  const a = session.address;
+  return !hasPin(session) && !!a.text?.trim() && !isUsableAddress(a.text, [a.area, session.deliveryZone?.name], a.landmark);
+}
+
+/**
+ * Does the address say more than the area? "DHA Phase 5" / "Gulberg" alone →
+ * no. "House 11, Street 2, DHA 5", "Flat 3 Al-Noor Plaza" or "near Imtiaz store" → yes.
+ * Rule: after removing the area / zone name, something with a number or at
+ * least two words is left (or the customer named a landmark).
+ */
+export function isUsableAddress(text: string | null | undefined, areaNames: (string | null | undefined)[], landmark?: string | null): boolean {
+  if (landmark?.trim()) return true;
+  const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9؀-ۿ]+/g, " ").trim();
+  let rest = ` ${norm(text ?? "")} `;
+  for (const name of areaNames) {
+    const k = name ? norm(name) : "";
+    if (k) rest = rest.split(` ${k} `).join(" ");
+  }
+  const words = rest.trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
+  return /\d/.test(rest) || words.length >= 2;
 }
 
 const STAGE_FOR: Record<Missing, BotStage> = {
