@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { BOT_LIMITS } from "../config";
-import { buildSummary, cartSubtotal, hasAddress, invalidateSummary, missingFields, repriceCart, summaryHash } from "../cart";
+import { buildSummary, cartSubtotal, hasAddress, invalidateSummary, isRoughAddress, missingFields, repriceCart, summaryHash } from "../cart";
 import { money } from "../menu-index";
 import { t } from "../texts";
 import { applyDeliveryZone, deliveryTerms } from "../delivery";
@@ -71,9 +71,23 @@ export async function setDeliveryAddressTool(ctx: BotContext, input: z.infer<typ
     ...(zone?.etaMinutes ? { delivery_time: `about ${zone.etaMinutes} minutes` } : {}),
   };
   if (!hasAddress(s)) {
-    return fail("LANDMARK_REQUIRED", "Address saved, but riders need a nearby landmark or a location pin. Ask for one.", { ...area, ...next(ctx) });
+    // Only the area, no house/street: ask ONCE for the current location. Next
+    // time whatever they type is accepted (never a loop of questions).
+    s.locationRequested = true;
+    return fail("ASK_FOR_LOCATION", "The address has no house/flat/street, only the area.", {
+      instruction:
+        "Ask ONCE, in one short message: please share your current location on WhatsApp (tap 📎 → Location → Send your current location), or type the house/flat number and street. Do NOT ask for a landmark.",
+      ...area,
+      ...next(ctx),
+    });
   }
-  return { ok: true, address: [s.address.text, s.address.area, s.address.landmark].filter(Boolean).join(", "), ...area, ...next(ctx) };
+  return {
+    ok: true,
+    address: [s.address.text, s.address.area, s.address.landmark].filter(Boolean).join(", "),
+    ...(isRoughAddress(s) ? { note: "Address is rough; the rider will call the customer. Do not ask for the address, location or a landmark again." } : {}),
+    ...area,
+    ...next(ctx),
+  };
 }
 
 export async function setPaymentMethodTool(ctx: BotContext, input: z.infer<typeof paymentSchema>): Promise<ToolResult> {
@@ -190,6 +204,8 @@ export async function confirmOrderTool(ctx: BotContext): Promise<ToolResult> {
     ...(isNew && s.paymentMethod === "cod" && total > ctx.restaurant.highValueCodThreshold ? ["New customer, high value — call to confirm."] : []),
     // Unlisted area delivered at the default fee (Phase 9).
     ...(s.orderType === "delivery" && s.deliveryZone?.flag ? [s.deliveryZone.flag] : []),
+    // Customer couldn't give more than the area (and no location pin).
+    ...(s.orderType === "delivery" && isRoughAddress(s) ? ["Address unclear — call customer."] : []),
   ];
   if (!result.data.duplicate && flags.length) {
     await ctx.store.setRiskFlag(s.restaurantId, result.data.id, flags.join(" · "));
