@@ -79,6 +79,8 @@ export type BotSession = {
   pendingCartCode: string | null;
   /** Delivery zone matched from the address/pin (Phase 9): fee + minimum for the summary. */
   deliveryZone: SessionZone | null;
+  /** The bot already asked once for the current location (address had no detail). Never asked twice. */
+  locationRequested: boolean;
 };
 
 export type SessionZone = {
