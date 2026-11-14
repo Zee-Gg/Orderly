@@ -68,7 +68,8 @@ export const BOT_TOOLS: Record<string, Def> = {
   view_cart: { description: "Current cart lines (with line ids) and subtotal from the pricing engine.", schema: emptySchema, run: viewCartTool },
   set_order_type: { description: "Delivery or pickup.", schema: orderTypeSchema, run: setOrderTypeTool },
   set_delivery_address: {
-    description: "Save the delivery address. Riders need a landmark or a location pin; without one the result is LANDMARK_REQUIRED.",
+    description:
+      "Save the delivery address the customer gave (landmark only if they named one). If it is only an area with no house/street, the result is ASK_FOR_LOCATION: ask once for their current location.",
     schema: addressSchema,
     run: setDeliveryAddressTool,
   },
