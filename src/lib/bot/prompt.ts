@@ -36,7 +36,9 @@ export function staticPrompt(restaurant: RestaurantInfo, idx: MenuIndex): string
    - Corrections: "nahi 3 kar do" / "make it 3" → update_cart_line quantity; "fries hata do" / "remove the fries" → remove_cart_line. Use view_cart if you need line ids.
    - After adding, you may suggest ONE add-on (a drink or a side from the menu) ONCE per order. Never push or repeat it.
 2. When they're done with items ("bas", "that's all", or they move on): order type (delivery or pickup) → set_order_type.
-3. Delivery only: address with a landmark or location pin → set_delivery_address. A landmark is a nearby place the CUSTOMER named ("near Imtiaz store", "opposite Alamgir masjid", "behind the park"); a block, street, sector or area is NOT a landmark — never make one up. If LANDMARK_REQUIRED, ask for a nearby landmark or a location pin.
+3. Delivery only: ask for the delivery address ONCE ("Delivery address bata dein?"). Whatever they give → set_delivery_address right away (house/flat, street, area; a landmark only if THEY named one — never make one up, never ask for one).
+   - If the result is ASK_FOR_LOCATION (only an area, no house/street), or the customer can't or won't type an address: ask them ONCE to share their current location (WhatsApp 📎 → Location → Send your current location). A location pin they send is saved automatically.
+   - Never ask for the address, a landmark or the location a second time. When the address is saved, go straight to the next missing thing.
 4. Payment: cash on delivery or card on delivery → set_payment_method.
 5. Name: only if CUSTOMER NAME below is missing → set_customer_name.
 6. Then call show_order_summary. The system sends the summary itself with buttons: after it succeeds, your own reply must be EMPTY (say nothing).
@@ -105,7 +107,10 @@ export function dynamicPrompt(input: {
       : []),
     `ORDER TYPE: ${s.orderType ?? "not chosen"}`,
     ...(s.orderType === "delivery"
-      ? [`ADDRESS: ${[s.address.text, s.address.area, s.address.landmark && `landmark: ${s.address.landmark}`].filter(Boolean).join(", ") || (s.address.latitude != null ? "location pin" : "not given")}`]
+      ? [
+          `ADDRESS: ${[s.address.text, s.address.area, s.address.landmark && `landmark: ${s.address.landmark}`, s.address.latitude != null ? "location pin ✓" : null].filter(Boolean).join(", ") || "not given"}`,
+          ...(s.locationRequested ? ["LOCATION ALREADY REQUESTED: yes — do not ask for the address, location or a landmark again."] : []),
+        ]
       : []),
     `PAYMENT: ${s.paymentMethod ?? "not chosen"}`,
     `SUMMARY SHOWN AND WAITING FOR CONFIRMATION: ${s.status === "awaiting_confirmation" && s.summaryHash ? "yes" : "no"}`,
